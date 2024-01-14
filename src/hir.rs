@@ -2,7 +2,6 @@
 pub struct Module {
     pub constants: Vec<Constant>,
     pub functions: Vec<Function>,
-    pub intrinsics: Vec<String>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -27,7 +26,7 @@ pub struct Function {
 #[derive(Debug)]
 pub enum Constant {
     String(String),
-    Number(i64),
+    Int(i64),
     Unit,
 }
 
@@ -47,22 +46,14 @@ pub enum UnaryOp {
 #[derive(Debug)]
 pub enum Expression {
     Block(Vec<Expression>, Box<Expression>),
-    Call {
-        callee: Box<Expression>,
+    Method {
+        object: Box<Expression>,
+        name: String,
         args: Vec<Expression>,
     },
     Const(ConstId),
     Local(LocalId),
     Global(GlobalId),
-    Binary {
-        op: BinaryOp,
-        lhs: Box<Expression>,
-        rhs: Box<Expression>,
-    },
-    Unary {
-        op: UnaryOp,
-        expr: Box<Expression>,
-    },
     Assign {
         var: LocalId,
         expr: Box<Expression>,
@@ -78,11 +69,6 @@ mod pretty_print {
             writeln!(f, "Constants:")?;
             for (i, constant) in self.constants.iter().enumerate() {
                 writeln!(f, "c{} = {}", i, constant)?;
-            }
-
-            writeln!(f, "Intrinsics:")?;
-            for (i, intrinsic) in self.intrinsics.iter().enumerate() {
-                writeln!(f, "i{} = {}", i, intrinsic)?;
             }
 
             writeln!(f, "Functions:")?;
@@ -113,7 +99,7 @@ mod pretty_print {
     impl GlobalId {
         fn write(&self, f: &mut Formatter, module: &Module) -> Result {
             match self {
-                GlobalId::Intrinsic(i) => write!(f, "i{}({})", i, module.intrinsics[*i]),
+                GlobalId::Intrinsic(i) => write!(f, "i{}", i),
                 GlobalId::Function(i) => write!(f, "f{}({})", i, module.functions[*i].ident),
             }
         }
@@ -123,7 +109,7 @@ mod pretty_print {
         fn fmt(&self, f: &mut Formatter) -> Result {
             match self {
                 Constant::String(s) => write!(f, "\"{}\"", s),
-                Constant::Number(n) => write!(f, "{}", n),
+                Constant::Int(n) => write!(f, "{}", n),
                 Constant::Unit => write!(f, "()"),
             }
         }
@@ -170,9 +156,9 @@ mod pretty_print {
                     }
                     write!(f, "}}")
                 }
-                Expression::Call { callee, args } => {
-                    callee.write(f, module, offset)?;
-                    write!(f, "(")?;
+                Expression::Method { object, name, args } => {
+                    object.write(f, module, offset)?;
+                    write!(f, ".{}(", name)?;
                     for arg in args {
                         arg.write(f, module, offset)?;
                         write!(f, ", ")?;
@@ -182,17 +168,6 @@ mod pretty_print {
                 Expression::Const(id) => id.write(f, module),
                 Expression::Local(id) => write!(f, "{}", id),
                 Expression::Global(id) => id.write(f, module),
-                Expression::Binary { op, lhs, rhs } => {
-                    write!(f, "(")?;
-                    lhs.write(f, module, offset)?;
-                    write!(f, " {} ", op)?;
-                    rhs.write(f, module, offset)?;
-                    write!(f, ")")
-                }
-                Expression::Unary { op, expr } => {
-                    write!(f, "{}", op)?;
-                    expr.write(f, module, offset)
-                }
                 Expression::Assign { var, expr } => {
                     write!(f, "{} = ", var)?;
                     expr.write(f, module, offset)

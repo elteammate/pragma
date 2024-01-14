@@ -1,6 +1,5 @@
 fn main() {
     x := "";
     y := 5 * 10 + 12 * ---5 + 1;
-    x = 5;
     println("Hello, world!");
 }

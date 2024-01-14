@@ -3,11 +3,14 @@ mod ast;
 mod parser;
 mod hir;
 mod names;
+mod tir;
+mod types;
 
 use logos::Logos;
 use ast::ParsingError;
 use lexer::Token;
 use crate::names::ast_to_hir;
+use crate::types::solve_types;
 
 fn main() {
     let program = std::fs::read_to_string("programs/hello.pragma").unwrap();
@@ -56,4 +59,8 @@ fn main() {
     };
 
     println!("{}", &hir);
+
+    let typed = solve_types(hir);
+
+    println!("{:#?}", &typed);
 }
