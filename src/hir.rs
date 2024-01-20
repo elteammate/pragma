@@ -10,7 +10,7 @@ pub struct LocalId(pub usize);
 #[derive(Debug, Copy, Clone)]
 pub struct ConstId(pub usize);
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 pub enum GlobalId {
     Intrinsic(usize),
     Function(usize),

@@ -5,6 +5,8 @@ mod hir;
 mod names;
 mod tir;
 mod types;
+mod c;
+mod transpile;
 
 use logos::Logos;
 use ast::ParsingError;
@@ -63,4 +65,8 @@ fn main() {
     let typed = solve_types(hir);
 
     println!("{:#?}", &typed);
+
+    let c = transpile::transpile_to_c(typed.unwrap());
+
+    println!("{:#?}", &c);
 }

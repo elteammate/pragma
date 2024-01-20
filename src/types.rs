@@ -70,11 +70,12 @@ impl<'hir> TyContext<'hir> {
         //       once they are implemented.
         match id {
             hir::GlobalId::Intrinsic(i) => match i {
-                0 => Type::Function(vec![Type::String], Box::new(Type::Unit)),
-                1 => Type::Function(vec![Type::String], Box::new(Type::Unit)),
+                0 => Type::Function(id, vec![Type::String], Box::new(Type::Unit)),
+                1 => Type::Function(id, vec![Type::String], Box::new(Type::Unit)),
                 _ => panic!("Unknown intrinsic: {}", i),
             },
             hir::GlobalId::Function(_) => Type::Function(
+                id,
                 vec![],
                 Box::new(Type::Unit),
             )
@@ -331,7 +332,7 @@ fn assign_types(ctx: &TyContext, expression: &hir::Expression) -> tir::Typed {
 
 fn get_method(ty: Type, method: &str) -> TypeResult<(Vec<Type>, Type)> {
     match (&ty, method) {
-        (Type::Function(args, ret), "()") => Ok((args.clone(), *ret.clone())),
+        (Type::Function(_id, args, ret), "()") => Ok((args.clone(), *ret.clone())),
         (Type::Int, "+2") => Ok((vec![Type::Int], Type::Int)),
         (Type::Int, "-2") => Ok((vec![Type::Int], Type::Int)),
         (Type::Int, "*2") => Ok((vec![Type::Int], Type::Int)),

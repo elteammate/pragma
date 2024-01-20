@@ -1,11 +1,17 @@
 pub use crate::hir::{ConstId, GlobalId, LocalId};
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Unit,
     Int,
     String,
-    Function(Vec<Type>, Box<Type>),
+    Function(GlobalId, Vec<Type>, Box<Type>),
+}
+
+impl Type {
+    pub fn is_zero_sized(&self) -> bool {
+        matches!(self, Type::Unit | Type::Function(..))
+    }
 }
 
 #[derive(Debug)]
