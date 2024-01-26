@@ -1,0 +1,37 @@
+- [ ] Translate anything to C
+- [ ] Pass spans around
+- [ ] Typechecking generated C
+- [ ] Function parameters
+- [ ] Return
+- [ ] Expose native C types
+- [ ] Expose native C functions
+- [ ] If
+- [ ] While
+- [ ] For
+- [ ] Break
+- [ ] Continue
+- [ ] Debug information
+- [ ] Structs
+- [ ] Pattern matching
+- [ ] Match
+- [ ] Methods
+- [ ] Operator de-sugaring
+- [ ] Modules and imports
+- [ ] Compile time evaluation
+- [ ] Reflection
+- [ ] Macros
+- [ ] LSP interface
+- [ ] Better type inference
+- [ ] Implicit type conversions
+- [ ] Uninitialized variables
+- [ ] Type aliases
+- [ ] Type inference for function parameters?
+- [ ] Generics
+- [ ] Traits
+- [ ] Ephemeral types?
+- [ ] Caching
+- [ ] Incremental compilation
+- [ ] Wasm target
+- [ ] LLVM target?
+- [ ] Native target?
+- [ ] C++ target?
