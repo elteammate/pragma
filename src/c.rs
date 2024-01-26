@@ -78,5 +78,6 @@ pub enum Expression {
     Multiply(Box<Expression>, Box<Expression>),
     UnaryPlus(Box<Expression>),
     UnaryMinus(Box<Expression>),
-    StructAccess(Box<Expression>, usize)
+    StructAccess(Box<Expression>, usize),
+    StructBuild(StructId, Vec<Expression>),
 }
