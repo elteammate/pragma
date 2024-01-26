@@ -9,8 +9,8 @@ pub fn transpile_to_c(module: tir::Module) -> c::Module {
         Type::Function(
             tir::GlobalId::Function(0),
             vec![],
-            Box::new(Type::Unit)
-        ), "()"
+            Box::new(Type::Unit),
+        ), "()",
     );
 
     c::Module {
@@ -117,7 +117,7 @@ impl<'tir> CBuilder<'tir> {
                 "printf" => {
                     self.include_if_needed("stdio.h");
                     (vec![char_ptr.clone(), char_ptr], c::CType::Int)
-                },
+                }
                 _ => panic!("Unknown external function"),
             };
             self.externals.push(c::ExternalFunction {
@@ -137,9 +137,12 @@ impl<'tir> CBuilder<'tir> {
                     parameters: vec![int.clone(), int.clone()],
                     body: vec![
                         c::Statement::Return(
-                            c::Expression::Plus(
-                                Box::new(c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(0))), 0)),
-                                Box::new(c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(1))), 0)),
+                            c::Expression::StructBuild(
+                                self.get_int_struct(),
+                                vec![c::Expression::Plus(
+                                    Box::new(c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(0))), 0)),
+                                    Box::new(c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(1))), 0)),
+                                )],
                             )
                         ),
                     ],
@@ -154,9 +157,12 @@ impl<'tir> CBuilder<'tir> {
                     parameters: vec![int.clone(), int.clone()],
                     body: vec![
                         c::Statement::Return(
-                            c::Expression::Multiply(
-                                Box::new(c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(0))), 0)),
-                                Box::new(c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(1))), 0)),
+                            c::Expression::StructBuild(
+                                self.get_int_struct(),
+                                vec![c::Expression::Multiply(
+                                    Box::new(c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(0))), 0)),
+                                    Box::new(c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(1))), 0)),
+                                )],
                             )
                         ),
                     ],
@@ -171,9 +177,12 @@ impl<'tir> CBuilder<'tir> {
                     parameters: vec![int.clone(), int.clone()],
                     body: vec![
                         c::Statement::Return(
-                            c::Expression::Minus(
-                                Box::new(c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(0))), 0)),
-                                Box::new(c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(1))), 0)),
+                            c::Expression::StructBuild(
+                                self.get_int_struct(),
+                                vec![c::Expression::Minus(
+                                    Box::new(c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(0))), 0)),
+                                    Box::new(c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(1))), 0)),
+                                )],
                             )
                         ),
                     ],
@@ -188,8 +197,11 @@ impl<'tir> CBuilder<'tir> {
                     parameters: vec![int.clone()],
                     body: vec![
                         c::Statement::Return(
-                            c::Expression::UnaryMinus(
-                                Box::new(c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(0))), 0)),
+                            c::Expression::StructBuild(
+                                self.get_int_struct(),
+                                vec![c::Expression::UnaryMinus(
+                                    Box::new(c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(0))), 0)),
+                                )],
                             )
                         ),
                     ],
@@ -385,7 +397,7 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
                 }
             }
             tir::Expression::Method {
-                object: object@tir::Typed { ty, .. },
+                object: object @ tir::Typed { ty, .. },
                 name: method_name,
                 args,
             } => {

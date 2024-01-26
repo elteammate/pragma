@@ -198,6 +198,7 @@ fn emit_struct(builder: &mut Builder, id: StructId, struct_: &Struct) -> std::fm
             let name = builder.get_struct_field(0);
             write!(builder, "{}", name)
         })?;
+        write!(builder, ";")?;
     }
     write!(builder, "}}{};", builder.get_struct_name(id))?;
     Ok(())
@@ -393,8 +394,10 @@ fn emit_expression<'c>(
             let field = builder.get_struct_field(*field_no);
             write!(builder, ".{}", field)?;
         },
-        Expression::StructBuild(_struct_id, fields) => {
-            write!(builder, "{{")?;
+        Expression::StructBuild(struct_id, fields) => {
+            write!(builder, "(")?;
+            write!(builder, "{}", builder.get_struct_name(*struct_id))?;
+            write!(builder, "){{")?;
             emit_comma_separated_list(builder, names, fields.iter())?;
             write!(builder, "}}")?;
         },

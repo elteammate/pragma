@@ -1,4 +1,4 @@
-- [ ] Translate anything to C
+- [x] Translate anything to C
 - [ ] Pass spans around
 - [ ] Typechecking generated C
 - [ ] Function parameters
