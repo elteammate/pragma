@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use crate::ast;
+use crate::ast::Ast;
 use crate::hir;
 
 pub enum HirError {
@@ -112,7 +113,7 @@ pub fn ast_to_hir(intrinsics: Vec<String>, module: ast::Module) -> HirResult<hir
     let mut globals = GlobalResolver::new(intrinsics);
 
     for item in &module.items {
-        match item {
+        match &item.0 {
             ast::Item::Function { ident, .. } => {
                 globals.add_function(ident.clone());
             }
@@ -122,11 +123,11 @@ pub fn ast_to_hir(intrinsics: Vec<String>, module: ast::Module) -> HirResult<hir
     let mut functions = Vec::new();
 
     for item in module.items {
-        match item {
+        match item.0 {
             ast::Item::Function { body, ident } => {
                 let mut resolver = Resolver::new(globals);
                 let body = resolver.with_scope(|resolver| {
-                    ast_to_hir_expression(resolver, body)
+                    ast_to_hir_expression(resolver, body.0)
                 })?;
 
                 let (global_resolver, function) = (
@@ -155,18 +156,18 @@ fn ast_to_hir_expression(resolver: &mut Resolver, expr: ast::Expression) -> HirR
     match expr {
         ast::Expression::Block(statements, last) => resolver.with_scope(|resolver| {
             let statements = statements.into_iter()
-                .map(|expr| ast_to_hir_expression(resolver, expr))
+                .map(|expr| ast_to_hir_expression(resolver, expr.0))
                 .collect::<HirResult<Vec<_>>>()?;
             let last = last
-                .map(|expr| ast_to_hir_expression(resolver, *expr))
+                .map(|expr| ast_to_hir_expression(resolver, expr.0))
                 .transpose()?
                 .unwrap_or(hir::Expression::Const(resolver.add_constant(hir::Constant::Unit)));
             Ok(hir::Expression::Block(statements, Box::new(last)))
         }),
         ast::Expression::Call { callee, args } => {
-            let callee = ast_to_hir_expression(resolver, *callee)?;
+            let callee = ast_to_hir_expression(resolver, callee.0)?;
             let args = args.into_iter()
-                .map(|expr| ast_to_hir_expression(resolver, expr))
+                .map(|expr| ast_to_hir_expression(resolver, expr.0))
                 .collect::<HirResult<Vec<_>>>()?;
             Ok(hir::Expression::Method {
                 object: Box::new(callee),
@@ -182,10 +183,10 @@ fn ast_to_hir_expression(resolver: &mut Resolver, expr: ast::Expression) -> HirR
             Ok(hir::Expression::Const(resolver.add_constant(constant)))
         },
         ast::Expression::Ident(ident) => resolver.get(&ident),
-        ast::Expression::Binary { op: ast::BinaryOp::Assign, lhs, rhs } => {
-            match *lhs {
+        ast::Expression::Binary { op: Ast(ast::BinaryOp::Assign, _), lhs, rhs } => {
+            match lhs.0 {
                 ast::Expression::Ident(ident) => {
-                    let rhs = ast_to_hir_expression(resolver, *rhs)?;
+                    let rhs = ast_to_hir_expression(resolver, rhs.0)?;
                     let id = resolver.get_local(&ident)?;
                     Ok(hir::Expression::Assign {
                         var: id,
@@ -196,9 +197,9 @@ fn ast_to_hir_expression(resolver: &mut Resolver, expr: ast::Expression) -> HirR
             }
         },
         ast::Expression::Binary { op, lhs, rhs } => {
-            let lhs = ast_to_hir_expression(resolver, *lhs)?;
-            let rhs = ast_to_hir_expression(resolver, *rhs)?;
-            let op = match op {
+            let lhs = ast_to_hir_expression(resolver, lhs.0)?;
+            let rhs = ast_to_hir_expression(resolver, rhs.0)?;
+            let op = match op.0 {
                 ast::BinaryOp::Add => "+2".to_string(),
                 ast::BinaryOp::Sub => "-2".to_string(),
                 ast::BinaryOp::Mul => "*2".to_string(),
@@ -211,8 +212,8 @@ fn ast_to_hir_expression(resolver: &mut Resolver, expr: ast::Expression) -> HirR
             })
         },
         ast::Expression::Unary { op, expr } => {
-            let expr = ast_to_hir_expression(resolver, *expr)?;
-            let op = match op {
+            let expr = ast_to_hir_expression(resolver, expr.0)?;
+            let op = match op.0 {
                 ast::UnaryOp::Neg => "-1".to_string(),
                 ast::UnaryOp::Pos => "+1".to_string(),
             };
@@ -223,8 +224,8 @@ fn ast_to_hir_expression(resolver: &mut Resolver, expr: ast::Expression) -> HirR
             })
         },
         ast::Expression::Definition { ident, expr } => {
-            let expr = ast_to_hir_expression(resolver, *expr)?;
-            let id = resolver.add_local(ident);
+            let expr = ast_to_hir_expression(resolver, expr.0)?;
+            let id = resolver.add_local(ident.0);
             Ok(hir::Expression::Assign {
                 var: id,
                 expr: Box::new(expr),

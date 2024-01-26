@@ -7,6 +7,7 @@ mod tir;
 mod types;
 mod c;
 mod transpile;
+mod span;
 
 use logos::Logos;
 use ast::ParsingError;
@@ -28,11 +29,11 @@ fn main() {
             return;
         },
         Err(ParsingError::UnknownToken(s, span)) => {
-            println!("Unknown token: {} at {:?} ({:?})", s, span.clone(), &program[span]);
+            println!("Unknown token: {} at {:?} ({:?})", s, span.clone(), &program[span.range()]);
             return;
         },
         Err(ParsingError::UnexpectedToken(s, span)) => {
-            println!("Unexpected token: {} at {:?} ({:?})", s, span.clone(), &program[span]);
+            println!("Unexpected token: {} at {:?} ({:?})", s, span.clone(), &program[span.range()]);
             return;
         },
         Err(ParsingError::IncorrectPattern(s, expr)) => {
