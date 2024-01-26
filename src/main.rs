@@ -8,6 +8,7 @@ mod types;
 mod c;
 mod transpile;
 mod span;
+mod emit;
 
 use logos::Logos;
 use ast::ParsingError;
@@ -70,4 +71,10 @@ fn main() {
     let c = transpile::transpile_to_c(typed.unwrap());
 
     println!("{:#?}", &c);
+
+    let c = emit::emit(&c);
+
+    println!("{}", &c);
+
+    std::fs::write("output/out.c", c).unwrap();
 }

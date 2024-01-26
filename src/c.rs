@@ -1,4 +1,4 @@
-pub use crate::tir::{LocalId};
+pub use crate::tir::LocalId;
 
 #[derive(Debug, Clone, Copy)]
 pub struct StructId(pub usize);
@@ -62,6 +62,7 @@ pub enum Statement {
 
 #[derive(Debug)]
 pub enum Expression {
+    // TODO: figure out proper integer formats
     Int(i64),
     String(String),
     Local(LocalId),
@@ -80,4 +81,50 @@ pub enum Expression {
     UnaryMinus(Box<Expression>),
     StructAccess(Box<Expression>, usize),
     StructBuild(StructId, Vec<Expression>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Precedence {
+    Lowest,
+    SuffixUnary,
+    PrefixUnary,
+    Multiply,
+    Add,
+    Shift,
+    Compare,
+    Equality,
+    BitAnd,
+    BitXor,
+    BitOr,
+    And,
+    Or,
+    Ternary,
+    Assign,
+    Comma,
+    Highest,
+}
+
+impl Expression {
+    pub fn prec(&self) -> Precedence {
+        match self {
+            Expression::Int(_) => Precedence::Lowest,
+            Expression::String(_) => Precedence::Lowest,
+            Expression::Local(_) => Precedence::Lowest,
+            Expression::Param(_) => Precedence::Lowest,
+            Expression::Temp(_) => Precedence::Lowest,
+            Expression::Global(_) => Precedence::Lowest,
+            Expression::Call(_, _) => Precedence::SuffixUnary,
+            Expression::ExternalCall(_, _) => Precedence::SuffixUnary,
+            Expression::DynamicCall(_, _) => Precedence::SuffixUnary,
+            Expression::Assign(_, _) => Precedence::Assign,
+            Expression::AssignTemp(_, _) => Precedence::Assign,
+            Expression::Plus(_, _) => Precedence::Add,
+            Expression::Minus(_, _) => Precedence::Add,
+            Expression::Multiply(_, _) => Precedence::Multiply,
+            Expression::UnaryPlus(_) => Precedence::PrefixUnary,
+            Expression::UnaryMinus(_) => Precedence::PrefixUnary,
+            Expression::StructAccess(_, _) => Precedence::SuffixUnary,
+            Expression::StructBuild(_, _) => Precedence::Lowest,
+        }
+    }
 }
