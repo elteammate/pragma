@@ -1,6 +1,7 @@
 - [x] Translate anything to C
+  - [ ] Consider C++ instead 
 - [ ] Pass spans around
-- [ ] Typechecking generated C
+- [x] Typechecking generated C
 - [ ] Function parameters
 - [ ] Return
 - [ ] Expose native C types

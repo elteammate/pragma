@@ -1,11 +1,11 @@
 use std::collections::HashMap;
 use crate::{c, tir};
-use crate::c::{ExternalId, GlobalId, StructId};
+use crate::c::{CType, Expr, ExternalId, GlobalId, ParamId, StructId, TypedExternalId, TypedGlobalId, TypedLocalId};
 use crate::tir::{Type};
 
 pub fn transpile_to_c(module: tir::Module) -> c::Module {
     let mut cbuilder = CBuilder::new(&module);
-    let main_id = cbuilder.get_method(
+    let main = cbuilder.get_method(
         Type::Function(
             tir::GlobalId::Function(0),
             vec![],
@@ -13,12 +13,14 @@ pub fn transpile_to_c(module: tir::Module) -> c::Module {
         ), "()",
     );
 
+    assert_eq!(main.ty(), c::CType::Function(vec![], Box::new(c::CType::Void)));
+
     c::Module {
         includes: cbuilder.includes,
         structs: cbuilder.structs,
         functions: cbuilder.functions,
         externals: cbuilder.externals,
-        main: Some(main_id),
+        main: Some(main.into()),
     }
 }
 
@@ -30,7 +32,7 @@ struct CBuilder<'tir> {
     includes: Vec<String>,
     int_wrap: Option<StructId>,
     string_wrap: Option<StructId>,
-    generated_methods: HashMap<(Type, String), GlobalId>,
+    generated_methods: HashMap<(Type, String), TypedGlobalId>,
 }
 
 impl<'tir> CBuilder<'tir> {
@@ -75,10 +77,14 @@ impl<'tir> CBuilder<'tir> {
         }
     }
 
-    fn function(&mut self, function: c::Function) -> GlobalId {
+    fn function(&mut self, function: c::Function) -> TypedGlobalId {
         let id = GlobalId(self.functions.len());
         self.functions.push(function);
-        id
+        let ty = c::CType::Function(
+            self.functions[id.0].parameters.clone(),
+            Box::new(self.functions[id.0].return_type.clone()),
+        );
+        TypedGlobalId::new(id, ty)
     }
 
     fn ty2c(&mut self, ty: Type) -> c::CType {
@@ -90,13 +96,13 @@ impl<'tir> CBuilder<'tir> {
         }
     }
 
-    fn get_method(&mut self, object: Type, name: &str) -> GlobalId {
-        if let Some(&id) = self.generated_methods.get(&(object.clone(), name.to_string())) {
-            return id;
+    fn get_method(&mut self, object: Type, name: &str) -> TypedGlobalId {
+        if let Some(id) = self.generated_methods.get(&(object.clone(), name.to_string())) {
+            return id.clone();
         } else {
             let method = self.generate_method(object.clone(), name);
             let id = self.function(method);
-            self.generated_methods.insert((object, name.to_string()), id);
+            self.generated_methods.insert((object, name.to_string()), id.clone());
             id
         }
     }
@@ -133,15 +139,17 @@ impl<'tir> CBuilder<'tir> {
         match (object, name) {
             (Type::Int, "+2") => {
                 let int = self.ty2c(Type::Int);
+                let param0 = c::TypedParamId::new(ParamId(0), int.clone());
+                let param1 = c::TypedParamId::new(ParamId(1), int.clone());
                 c::Function {
                     parameters: vec![int.clone(), int.clone()],
                     body: vec![
                         c::Statement::Return(
-                            c::Expression::StructBuild(
+                            Expr::new_struct_build(
                                 self.get_int_struct(),
-                                vec![c::Expression::Plus(
-                                    Box::new(c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(0))), 0)),
-                                    Box::new(c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(1))), 0)),
+                                vec![Expr::new_plus(
+                                    Expr::new_struct_access(Expr::new_param(param0), 0, CType::Int),
+                                    Expr::new_struct_access(Expr::new_param(param1), 0, CType::Int),
                                 )],
                             )
                         ),
@@ -153,15 +161,17 @@ impl<'tir> CBuilder<'tir> {
             }
             (Type::Int, "*2") => {
                 let int = self.ty2c(Type::Int);
+                let param0 = c::TypedParamId::new(ParamId(0), int.clone());
+                let param1 = c::TypedParamId::new(ParamId(1), int.clone());
                 c::Function {
                     parameters: vec![int.clone(), int.clone()],
                     body: vec![
                         c::Statement::Return(
-                            c::Expression::StructBuild(
+                            Expr::new_struct_build(
                                 self.get_int_struct(),
-                                vec![c::Expression::Multiply(
-                                    Box::new(c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(0))), 0)),
-                                    Box::new(c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(1))), 0)),
+                                vec![Expr::new_multiply(
+                                    Expr::new_struct_access(Expr::new_param(param0), 0, c::CType::Int),
+                                    Expr::new_struct_access(Expr::new_param(param1), 0, c::CType::Int),
                                 )],
                             )
                         ),
@@ -173,15 +183,17 @@ impl<'tir> CBuilder<'tir> {
             }
             (Type::Int, "-2") => {
                 let int = self.ty2c(Type::Int);
+                let param0 = c::TypedParamId::new(ParamId(0), int.clone());
+                let param1 = c::TypedParamId::new(ParamId(1), int.clone());
                 c::Function {
                     parameters: vec![int.clone(), int.clone()],
                     body: vec![
                         c::Statement::Return(
-                            c::Expression::StructBuild(
+                            Expr::new_struct_build(
                                 self.get_int_struct(),
-                                vec![c::Expression::Minus(
-                                    Box::new(c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(0))), 0)),
-                                    Box::new(c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(1))), 0)),
+                                vec![Expr::new_minus(
+                                    Expr::new_struct_access(Expr::new_param(param0), 0, c::CType::Int),
+                                    Expr::new_struct_access(Expr::new_param(param1), 0, c::CType::Int),
                                 )],
                             )
                         ),
@@ -193,14 +205,16 @@ impl<'tir> CBuilder<'tir> {
             }
             (Type::Int, "-1") => {
                 let int = self.ty2c(Type::Int);
+                let param = c::TypedParamId::new(ParamId(0), int.clone());
                 c::Function {
                     parameters: vec![int.clone()],
                     body: vec![
                         c::Statement::Return(
-                            c::Expression::StructBuild(
+                            Expr::new_struct_build(
                                 self.get_int_struct(),
-                                vec![c::Expression::UnaryMinus(
-                                    Box::new(c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(0))), 0)),
+                                vec![Expr::new_minus(
+                                    Expr::new_int(0),
+                                    Expr::new_struct_access(Expr::new_param(param), 0, c::CType::Int),
                                 )],
                             )
                         ),
@@ -212,14 +226,21 @@ impl<'tir> CBuilder<'tir> {
             }
             (Type::Function(tir::GlobalId::Intrinsic(0), _, _), "()") => {
                 let string = self.ty2c(Type::String);
+                let printf = self.get_external("printf");
+                let char_ptr = c::CType::Pointer(Box::new(c::CType::Char));
+                let typed_printf = TypedExternalId::new(printf, c::CType::Function(
+                    vec![char_ptr.clone(), char_ptr.clone()],
+                    Box::new(c::CType::Int))
+                );
+                let param = c::TypedParamId::new(ParamId(0), string.clone());
                 c::Function {
                     parameters: vec![string.clone()],
                     body: vec![c::Statement::Expression(
-                        c::Expression::ExternalCall(
-                            self.get_external("printf"),
+                        Expr::new_call(
+                            Expr::new_external(typed_printf),
                             vec![
-                                c::Expression::String("%s".to_string()),
-                                c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(0))), 0),
+                                Expr::new_string("%s".to_string()),
+                                Expr::new_struct_access(Expr::new_param(param), 0, char_ptr),
                             ],
                         )
                     )],
@@ -230,14 +251,21 @@ impl<'tir> CBuilder<'tir> {
             }
             (Type::Function(tir::GlobalId::Intrinsic(1), _, _), "()") => {
                 let string = self.ty2c(Type::String);
+                let printf = self.get_external("printf");
+                let char_ptr = c::CType::Pointer(Box::new(c::CType::Char));
+                let typed_printf = TypedExternalId::new(printf, c::CType::Function(
+                    vec![char_ptr.clone(), char_ptr.clone()],
+                    Box::new(c::CType::Int))
+                );
+                let param = c::TypedParamId::new(ParamId(0), string.clone());
                 c::Function {
                     parameters: vec![string.clone()],
                     body: vec![c::Statement::Expression(
-                        c::Expression::ExternalCall(
-                            self.get_external("printf"),
+                        Expr::new_call(
+                            Expr::new_external(typed_printf),
                             vec![
-                                c::Expression::String("%s\n".to_string()),
-                                c::Expression::StructAccess(Box::new(c::Expression::Param(c::ParamId(0))), 0),
+                                Expr::new_string("%s\n".to_string()),
+                                Expr::new_struct_access(Expr::new_param(param), 0, char_ptr),
                             ],
                         )
                     )],
@@ -280,7 +308,7 @@ struct CExpressionBuilder<'m, 'tir> {
     registered_locals: Vec<Option<c::LocalId>>,
 }
 
-type StatementAndResult = (Vec<c::Statement>, Option<c::Expression>);
+type StatementAndResult = (Vec<c::Statement>, Option<Expr>);
 
 impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
     fn new(module: &'m mut CBuilder<'tir>) -> Self {
@@ -293,10 +321,10 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
         }
     }
 
-    fn temp(&mut self, ty: c::CType) -> c::TempId {
+    fn temp(&mut self, ty: c::CType) -> c::TypedTempId {
         let id = c::TempId(self.temps.len());
-        self.temps.push(ty);
-        id
+        self.temps.push(ty.clone());
+        c::TypedTempId::new(id, ty)
     }
 
     fn ignore_result(&mut self, stmts: StatementAndResult) -> Vec<c::Statement> {
@@ -308,7 +336,11 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
         statements
     }
 
-    fn merge_results(&mut self, stmts: Vec<StatementAndResult>, types: Vec<c::CType>) -> (Vec<c::Statement>, Vec<c::Expression>) {
+    fn merge_results(
+        &mut self,
+        stmts: Vec<StatementAndResult>,
+        types: Vec<c::CType>
+    ) -> (Vec<c::Statement>, Vec<Expr>) {
         let mut statements = Vec::new();
         let mut results = Vec::new();
         for (stmt, ty) in stmts.into_iter().zip(types.into_iter()) {
@@ -316,11 +348,11 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
             statements.append(&mut stmts);
             if let Some(result) = result {
                 let temp = self.temp(ty);
-                statements.push(c::Statement::Expression(c::Expression::AssignTemp(
-                    temp,
-                    Box::new(result),
+                statements.push(c::Statement::Expression(Expr::new_assign_temp(
+                    temp.clone(),
+                    result,
                 )));
-                results.push(c::Expression::Temp(temp));
+                results.push(Expr::new_temp(temp));
             }
         }
 
@@ -369,13 +401,13 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
                 let constant = &self.module.module.constants[constant.0];
                 let expr = match constant {
                     tir::Constant::Unit => return (Vec::new(), None),
-                    tir::Constant::Int(int) => c::Expression::StructBuild(
+                    tir::Constant::Int(int) => Expr::new_struct_build(
                         self.module.get_int_struct(),
-                        vec![c::Expression::Int(*int)],
+                        vec![Expr::new_int(*int)],
                     ),
-                    tir::Constant::String(string) => c::Expression::StructBuild(
+                    tir::Constant::String(string) => Expr::new_struct_build(
                         self.module.get_string_struct(),
-                        vec![c::Expression::String(string.clone())],
+                        vec![Expr::new_string(string.clone())],
                     ),
                 };
 
@@ -386,7 +418,7 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
                     None
                 } else {
                     let local = self.get_local(*local);
-                    Some(c::Expression::Local(local))
+                    Some(Expr::new_local(TypedLocalId::new(local, self.module.ty2c(ty.clone()))))
                 }
             }
             tir::Expression::Global(_) => {
@@ -414,7 +446,7 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
                     args.insert(0, obj.expect("It must contain a value"));
                 }
 
-                Some(c::Expression::Call(id, args))
+                Some(Expr::new_call(Expr::new_global(id), args))
             }
             tir::Expression::Assign {
                 var: local,
@@ -426,9 +458,9 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
                     let local = self.get_local(*local);
                     let (mut stmts, value) = self.translate_expression(value);
                     result.append(&mut stmts);
-                    result.push(c::Statement::Expression(c::Expression::Assign(
-                        local,
-                        Box::new(value.expect("It must contain a value")),
+                    result.push(c::Statement::Expression(Expr::new_assign(
+                        TypedLocalId::new(local, self.module.ty2c(ty.clone())),
+                        value.expect("It must contain a value"),
                     )));
                     None
                 }

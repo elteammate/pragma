@@ -1,6 +1,7 @@
 pub use crate::tir::LocalId;
+use paste::paste;
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StructId(pub usize);
 
 #[derive(Debug, Clone, Copy)]
@@ -14,6 +15,40 @@ pub struct ExternalId(pub usize);
 
 #[derive(Debug, Clone, Copy)]
 pub struct ParamId(pub usize);
+
+macro_rules! typed_id {
+    ($name:ident) => {
+        paste! {
+            #[derive(Debug, Clone)]
+            pub struct [<Typed $name>] {
+                id: $name,
+                ty: CType,
+            }
+
+            impl [<Typed $name>] {
+                pub fn new(id: $name, ty: CType) -> Self {
+                    Self { id, ty }
+                }
+
+                pub fn ty(&self) -> CType {
+                    self.ty.clone()
+                }
+            }
+
+            impl From<[<Typed $name>]> for $name {
+                fn from(typed: [<Typed $name>]) -> Self {
+                    typed.id
+                }
+            }
+        }
+    }
+}
+
+typed_id!(LocalId);
+typed_id!(TempId);
+typed_id!(GlobalId);
+typed_id!(ExternalId);
+typed_id!(ParamId);
 
 #[derive(Debug)]
 pub struct Struct {
@@ -45,42 +80,39 @@ pub struct Function {
     pub return_type: CType,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum CType {
     Int,
     Char,
     Void,
     Struct(StructId),
     Pointer(Box<CType>),
+    Function(Vec<CType>, Box<CType>),
+}
+
+impl CType {
+    pub fn is_sized(&self) -> bool {
+        match self {
+            CType::Int => true,
+            CType::Char => true,
+            CType::Void => false,
+            CType::Struct(_) => true,
+            CType::Pointer(_) => true,
+            CType::Function(_, _) => false,
+        }
+    }
 }
 
 #[derive(Debug)]
 pub enum Statement {
-    Expression(Expression),
-    Return(Expression),
+    Expression(Expr),
+    Return(Expr),
 }
 
 #[derive(Debug)]
-pub enum Expression {
-    // TODO: figure out proper integer formats
-    Int(i64),
-    String(String),
-    Local(LocalId),
-    Param(ParamId),
-    Temp(TempId),
-    Global(GlobalId),
-    Call(GlobalId, Vec<Expression>),
-    ExternalCall(ExternalId, Vec<Expression>),
-    DynamicCall(Box<Expression>, Vec<Expression>),
-    Assign(LocalId, Box<Expression>),
-    AssignTemp(TempId, Box<Expression>),
-    Plus(Box<Expression>, Box<Expression>),
-    Minus(Box<Expression>, Box<Expression>),
-    Multiply(Box<Expression>, Box<Expression>),
-    UnaryPlus(Box<Expression>),
-    UnaryMinus(Box<Expression>),
-    StructAccess(Box<Expression>, usize),
-    StructBuild(StructId, Vec<Expression>),
+pub struct Expr {
+    pub expr: Expression,
+    pub ty: CType,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -104,27 +136,164 @@ pub enum Precedence {
     Highest,
 }
 
-impl Expression {
+impl Expr {
     pub fn prec(&self) -> Precedence {
-        match self {
-            Expression::Int(_) => Precedence::Lowest,
-            Expression::String(_) => Precedence::Lowest,
-            Expression::Local(_) => Precedence::Lowest,
-            Expression::Param(_) => Precedence::Lowest,
-            Expression::Temp(_) => Precedence::Lowest,
-            Expression::Global(_) => Precedence::Lowest,
-            Expression::Call(_, _) => Precedence::SuffixUnary,
-            Expression::ExternalCall(_, _) => Precedence::SuffixUnary,
-            Expression::DynamicCall(_, _) => Precedence::SuffixUnary,
-            Expression::Assign(_, _) => Precedence::Assign,
-            Expression::AssignTemp(_, _) => Precedence::Assign,
-            Expression::Plus(_, _) => Precedence::Add,
-            Expression::Minus(_, _) => Precedence::Add,
-            Expression::Multiply(_, _) => Precedence::Multiply,
-            Expression::UnaryPlus(_) => Precedence::PrefixUnary,
-            Expression::UnaryMinus(_) => Precedence::PrefixUnary,
-            Expression::StructAccess(_, _) => Precedence::SuffixUnary,
-            Expression::StructBuild(_, _) => Precedence::Lowest,
-        }
+        self.expr.prec()
     }
+}
+
+macro_rules! create_expressions {
+    {
+        $(
+            $name:ident
+            ($($param_name:ident : $param_ty:ty $(as $modifier:ty)?),+)
+            [$prec:expr]
+            : $($ctype:expr)?;
+        )*
+    } => {
+        #[derive(Debug)]
+        pub enum Expression {
+            $($name {
+                $(
+                    $param_name : create_expressions!(@modifier $param_ty $(as $modifier)?),
+                )+
+            },)*
+        }
+
+        impl Expression {
+            pub fn prec(&self) -> Precedence {
+                match self {
+                    $(Expression::$name { .. } => $prec,)*
+                }
+            }
+        }
+
+        $(
+            create_expressions!(
+                @impl
+                $name
+                ($($param_name : $param_ty),+)
+                : $($ctype)?
+            );
+        )*
+    };
+
+    (@impl $name:ident ($($param_name:ident : $param_ty:ty),+) : ) => {
+        paste! {
+            impl Expr {
+                pub fn [<new_ $name:snake>] (
+                    $($param_name : $param_ty,)+
+                    ty: CType,
+                ) -> Self {
+                    Self { expr: Expression::$name {
+                        $(
+                            $param_name: $param_name.into(),
+                        )+
+                    }, ty }
+                }
+            }
+        }
+    };
+
+    (@impl $name:ident ($($param_name:ident : $param_ty:ty),+) : $ctype:expr) => {
+        paste! {
+            impl Expr {
+                #[allow(dead_code)]
+                pub fn [<new_ $name:snake>] (
+                    $($param_name : $param_ty,)+
+                ) -> Self {
+                    let ty = $ctype;
+                    Self {
+                        expr: Expression::$name {
+                            $(
+                                $param_name: $param_name.into(),
+                            )+
+                        },
+                        ty
+                    }
+                }
+            }
+        }
+    };
+
+    (@modifier $ty:ty) => {
+        $ty
+    };
+
+    (@modifier $ty:ty as $modifier:ty) => {
+        $modifier
+    };
+}
+
+create_expressions! {
+    // TODO: figure out proper integer formats
+    Int(x: i64)[Precedence::Lowest] : CType::Int;
+    String(s: String)[Precedence::Lowest] : CType::Pointer(Box::new(CType::Char));
+    Local(id: TypedLocalId as LocalId)[Precedence::Lowest] : id.ty();
+    Param(id: TypedParamId as ParamId)[Precedence::Lowest] : id.ty();
+    Temp(id: TypedTempId as TempId)[Precedence::Lowest] : id.ty();
+    Global(id: TypedGlobalId as GlobalId)[Precedence::Lowest] : id.ty();
+    External(id: TypedExternalId as ExternalId)[Precedence::Lowest] : id.ty();
+    Call(f: Expr as Box<Expr>, args: Vec<Expr>)[Precedence::SuffixUnary] : {
+        match &f.ty {
+            CType::Function(params, ret) => {
+                assert_eq!(params.len(), args.len());
+                for (param, arg) in params.iter().zip(args.iter()) {
+                    assert_eq!(param, &arg.ty);
+                }
+                (**ret).clone()
+            },
+            _ => panic!("Expected pointer type, got {:?}", &f.ty),
+        }
+    };
+    Assign(lhs: TypedLocalId as LocalId, rhs: Expr as Box<Expr>)[Precedence::Assign] : {
+        assert_eq!(&lhs.ty, &rhs.ty);
+        lhs.ty()
+    };
+    AssignTemp(lhs: TypedTempId as TempId, rhs: Expr as Box<Expr>)[Precedence::Assign] : {
+        assert_eq!(&lhs.ty, &rhs.ty);
+        lhs.ty()
+    };
+    Plus(lhs: Expr as Box<Expr>, rhs: Expr as Box<Expr>)[Precedence::Add] : {
+        match &lhs.ty {
+            CType::Int => assert_eq!(&rhs.ty, &CType::Int),
+            CType::Pointer(pointee) => {
+                assert!(pointee.is_sized());
+                assert_eq!(&rhs.ty, &CType::Int);
+            },
+            _ => panic!("Expected int or pointer type, got {:?}", &lhs.ty),
+        }
+        lhs.ty.clone()
+    };
+    Minus(lhs: Expr as Box<Expr>, rhs: Expr as Box<Expr>)[Precedence::Add] : {
+        match &lhs.ty {
+            CType::Int => assert_eq!(&rhs.ty, &CType::Int),
+            CType::Pointer(pointee) => {
+                match &rhs.ty {
+                    CType::Int => assert!(pointee.is_sized()),
+                    CType::Pointer(pointee2) => assert_eq!(pointee, pointee2),
+                    _ => panic!("Expected int or pointer type, got {:?}", &rhs.ty),
+                }
+            },
+            _ => panic!("Expected int or pointer type, got {:?}", &lhs.ty),
+        }
+        lhs.ty.clone()
+    };
+    Multiply(lhs: Expr as Box<Expr>, rhs: Expr as Box<Expr>)[Precedence::Multiply] : {
+        assert_eq!(&lhs.ty, &CType::Int);
+        assert_eq!(&rhs.ty, &CType::Int);
+        lhs.ty.clone()
+    };
+    UnaryPlus(x: Expr as Box<Expr>)[Precedence::PrefixUnary] : {
+        assert_eq!(&x.ty, &CType::Int);
+        x.ty.clone()
+    };
+    UnaryMinus(x: Expr as Box<Expr>)[Precedence::PrefixUnary] : {
+        assert_eq!(&x.ty, &CType::Int);
+        x.ty.clone()
+    };
+    // Type is left blank because it's determined by the struct
+    StructAccess(x: Expr as Box<Expr>, field: usize)[Precedence::SuffixUnary] : ;
+    // Type checking is left for the caller
+    StructBuild(id: StructId, fields: Vec<Expr>)[Precedence::Lowest] : CType::Struct(id);
 }

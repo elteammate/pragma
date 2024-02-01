@@ -77,4 +77,23 @@ fn main() {
     println!("{}", &c);
 
     std::fs::write("output/out.c", c).unwrap();
+
+    let output = std::process::Command::new("gcc")
+        .arg("output/out.c")
+        .arg("-o")
+        .arg("output/out")
+        .output()
+        .expect("Failed to execute gcc");
+
+    if !output.status.success() {
+        println!("GCC failed: {}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    let output = std::process::Command::new("./output/out")
+        .output()
+        .expect("Failed to execute program");
+
+    println!("Output:\n############################");
+    println!("{}", String::from_utf8_lossy(&output.stdout));
+    println!("############################");
 }

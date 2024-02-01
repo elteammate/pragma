@@ -1,5 +1,5 @@
 use std::fmt::Write;
-use crate::c::{CType, Expression, Function, GlobalId, LocalId, Module, ParamId, Precedence, Statement, Struct, StructId, TempId};
+use crate::c::{CType, Expression, ExternalId, Function, GlobalId, LocalId, Module, ParamId, Precedence, Statement, Struct, StructId, TempId};
 
 const ALPHABET: &'static [u8] =
     b"abcdefghijklmnopqrstuvwxyz\
@@ -119,6 +119,10 @@ impl<'c> Builder<'c> {
             self.struct_fields.push(self.struct_field_namer.next().unwrap());
         }
         self.struct_fields[field_no].clone()
+    }
+
+    fn get_external_name(&self, external_id: ExternalId) -> String {
+        self.module.externals[external_id.0].name.clone()
     }
 }
 
@@ -266,7 +270,8 @@ fn emit_type(builder: &mut Builder, ty: CType) -> std::fmt::Result {
             // TODO: this is most likely incorrect
             emit_type(builder, *ty)?;
             write!(builder, "*")
-        }
+        },
+        CType::Function(_, _) => todo!("Cannot emit function type"),
     }
 }
 
@@ -284,6 +289,7 @@ fn emit_decl<I>(builder: &mut Builder, ty: CType, ident: I) -> std::fmt::Result
             emit_type(builder, ty)?;
             ident(builder)
         }
+        CType::Function(_, _) => todo!("Cannot emit function type"),
     }
 }
 
@@ -294,11 +300,11 @@ fn emit_statement<'c>(
 ) -> std::fmt::Result {
     match stmt {
         Statement::Expression(expr) => {
-            emit_expression(builder, names, expr, Precedence::Highest, false)?;
+            emit_expression(builder, names, &expr.expr, Precedence::Highest, false)?;
         },
         Statement::Return(expr) => {
             write!(builder, "return ")?;
-            emit_expression(builder, names, expr, Precedence::Highest, false)?;
+            emit_expression(builder, names, &expr.expr, Precedence::Highest, false)?;
         },
     }
     write!(builder, ";")
@@ -335,73 +341,64 @@ fn emit_expression<'c>(
 
     match expr {
         // TODO: lay out integers properly
-        Expression::Int(i) => write!(builder, "{}", i)?,
+        Expression::Int { x } => write!(builder, "{}", x)?,
         // TODO: format string properly
-        Expression::String(s) => write!(builder, "{:?}", &s[..])?,
-        Expression::Local(id) => write!(builder, "{}", names.get_local(*id))?,
-        Expression::Temp(id) => write!(builder, "{}", names.get_temp(*id))?,
-        Expression::Param(id) => write!(builder, "{}", names.get_param(*id))?,
-        Expression::Global(id) => write!(builder, "{}", builder.get_function_name(*id))?,
-        Expression::Call(id, args) => {
-            write!(builder, "{}(", builder.get_function_name(*id))?;
-            emit_comma_separated_list(builder, names, args.iter())?;
-            write!(builder, ")")?
-        },
-        Expression::ExternalCall(id, args) => {
-            write!(builder, "{}(", builder.module.externals[id.0].name)?;
-            emit_comma_separated_list(builder, names, args.iter())?;
-            write!(builder, ")")?
-        },
-        Expression::DynamicCall(func, args) => {
-            emit_expression(builder, names, func, Precedence::SuffixUnary, false)?;
+        Expression::String { s } => write!(builder, "{:?}", &s[..])?,
+        Expression::Local { id } => write!(builder, "{}", names.get_local(*id))?,
+        Expression::Temp { id } => write!(builder, "{}", names.get_temp(*id))?,
+        Expression::Param { id } => write!(builder, "{}", names.get_param(*id))?,
+        Expression::Global { id } => write!(builder, "{}", builder.get_function_name(*id))?,
+        Expression::External { id } => write!(builder, "{}", builder.get_external_name(*id))?,
+        Expression::Call { f, args } => {
+            emit_expression(builder, names, &f.expr, Precedence::SuffixUnary, false)?;
             write!(builder, "(")?;
-            emit_comma_separated_list(builder, names, args.iter())?;
+            emit_comma_separated_list(builder, names, args.iter().map(|x| &x.expr))?;
             write!(builder, ")")?
         },
-        Expression::Assign(id, expr) => {
-            write!(builder, "{}=", names.get_local(*id))?;
-            emit_expression(builder, names, expr, Precedence::Assign, false)?;
+        Expression::Assign { lhs, rhs } => {
+            write!(builder, "{}=", names.get_local(*lhs))?;
+            emit_expression(builder, names, &rhs.expr, Precedence::Assign, false)?;
         },
-        Expression::AssignTemp(id, expr) => {
-            write!(builder, "{}=", names.get_temp(*id))?;
-            emit_expression(builder, names, expr, Precedence::Assign, false)?;
+        Expression::AssignTemp { lhs, rhs } => {
+            write!(builder, "{}=", names.get_temp(*lhs))?;
+            emit_expression(builder, names, &rhs.expr, Precedence::Assign, false)?;
         },
-        Expression::Plus(lhs, rhs) => {
-            emit_expression(builder, names, lhs, Precedence::Add, false)?;
+        Expression::Plus { lhs, rhs } => {
+            emit_expression(builder, names, &lhs.expr, Precedence::Add, false)?;
             write!(builder, "+")?;
-            emit_expression(builder, names, rhs, Precedence::Add, true)?;
+            emit_expression(builder, names, &rhs.expr, Precedence::Add, true)?;
         },
-        Expression::Minus(lhs, rhs) => {
-            emit_expression(builder, names, lhs, Precedence::Add, false)?;
+        Expression::Minus { lhs, rhs } => {
+            emit_expression(builder, names, &lhs.expr, Precedence::Add, false)?;
             write!(builder, "-")?;
-            emit_expression(builder, names, rhs, Precedence::Add, true)?;
+            emit_expression(builder, names, &rhs.expr, Precedence::Add, true)?;
         },
-        Expression::Multiply(lhs, rhs) => {
-            emit_expression(builder, names, lhs, Precedence::Multiply, false)?;
+        Expression::Multiply { lhs, rhs } => {
+            emit_expression(builder, names, &lhs.expr, Precedence::Multiply, false)?;
             write!(builder, "*")?;
-            emit_expression(builder, names, rhs, Precedence::Multiply, true)?;
+            emit_expression(builder, names, &rhs.expr, Precedence::Multiply, true)?;
         },
-        Expression::UnaryPlus(expr) => {
-            write!(builder, "+")?;
-            emit_expression(builder, names, expr, Precedence::PrefixUnary, true)?;
+        Expression::UnaryPlus { x } => {
+            // it's always a no-op, right?
+            // write!(builder, "+")?;
+            emit_expression(builder, names, &x.expr, Precedence::PrefixUnary, true)?;
         },
-        Expression::UnaryMinus(expr) => {
+        Expression::UnaryMinus { x } => {
             write!(builder, "-")?;
-            emit_expression(builder, names, expr, Precedence::PrefixUnary, true)?;
+            emit_expression(builder, names, &x.expr, Precedence::PrefixUnary, true)?;
         },
-        Expression::StructAccess(expr, field_no) => {
-            emit_expression(builder, names, expr, Precedence::SuffixUnary, false)?;
-            let field = builder.get_struct_field(*field_no);
+        Expression::StructAccess { x, field } => {
+            emit_expression(builder, names, &x.expr, Precedence::SuffixUnary, false)?;
+            let field = builder.get_struct_field(*field);
             write!(builder, ".{}", field)?;
         },
-        Expression::StructBuild(struct_id, fields) => {
+        Expression::StructBuild { id, fields } => {
             write!(builder, "(")?;
-            write!(builder, "{}", builder.get_struct_name(*struct_id))?;
+            write!(builder, "{}", builder.get_struct_name(*id))?;
             write!(builder, "){{")?;
-            emit_comma_separated_list(builder, names, fields.iter())?;
+            emit_comma_separated_list(builder, names, fields.iter().map(|f| &f.expr))?;
             write!(builder, "}}")?;
         },
-
     }
 
     if needs_parens {
