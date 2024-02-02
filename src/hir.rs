@@ -1,30 +1,26 @@
+use crate::{create_index};
+use crate::ivec::{ISource, IVec};
+
+create_index!(pub LocalId);
+create_index!(pub ConstId);
+create_index!(pub FunctionId);
+create_index!(pub IntrinsicId);
+
 #[derive(Debug)]
 pub struct Module {
-    pub constants: Vec<Constant>,
-    pub functions: Vec<Function>,
-}
-
-#[derive(Debug, Copy, Clone)]
-pub struct LocalId(pub usize);
-
-#[derive(Debug, Copy, Clone)]
-pub struct ConstId(pub usize);
-
-#[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
-pub enum GlobalId {
-    Intrinsic(usize),
-    Function(usize),
+    pub constants: IVec<Const, ConstId>,
+    pub functions: IVec<Function, FunctionId>,
 }
 
 #[derive(Debug)]
 pub struct Function {
-    pub locals: usize,
+    pub locals: ISource<LocalId>,
     pub ident: String,
     pub body: Expression,
 }
 
 #[derive(Debug)]
-pub enum Constant {
+pub enum Const {
     String(String),
     Int(i64),
     Unit,
@@ -53,13 +49,16 @@ pub enum Expression {
     },
     Const(ConstId),
     Local(LocalId),
-    Global(GlobalId),
+    Function(FunctionId),
+    Intrinsic(IntrinsicId),
     Assign {
         var: LocalId,
         expr: Box<Expression>,
     },
 }
 
+// TODO: outdated, to be removed/replaced
+/*
 mod pretty_print {
     use super::*;
     use std::fmt::*;
@@ -176,3 +175,4 @@ mod pretty_print {
         }
     }
 }
+ */

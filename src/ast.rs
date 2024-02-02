@@ -5,15 +5,13 @@ pub struct Ast<T>(pub T, pub Span);
 
 #[derive(Debug)]
 pub struct Module {
-    pub items: Vec<Ast<Item>>,
+    pub items: Vec<Ast<Function>>,
 }
 
 #[derive(Debug)]
-pub enum Item {
-    Function {
-        ident: String,
-        body: Ast<Expression>,
-    },
+pub struct Function {
+    pub(crate) ident: String,
+    pub(crate) body: Ast<Expression>,
 }
 
 #[derive(Debug, Copy, Clone)]

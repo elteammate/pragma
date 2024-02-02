@@ -1,19 +1,24 @@
+use crate::c::{
+    CType, Expr, ExternalId, FunctionId, LocalId, StructFieldId, StructId, TempId,
+    TypedExternalId, TypedFunctionId, TypedLocalId,
+};
+use crate::ivec::{IIndex, IVec};
+use crate::tir::Type;
+use crate::{c, ivec, tir};
 use std::collections::HashMap;
-use crate::{c, tir};
-use crate::c::{CType, Expr, ExternalId, GlobalId, ParamId, StructId, TypedExternalId, TypedGlobalId, TypedLocalId};
-use crate::tir::{Type};
 
 pub fn transpile_to_c(module: tir::Module) -> c::Module {
     let mut cbuilder = CBuilder::new(&module);
     let main = cbuilder.get_method(
         Type::Function(
-            tir::GlobalId::Function(0),
-            vec![],
+            tir::FunctionId::from_index(0),
+            ivec![],
             Box::new(Type::Unit),
-        ), "()",
+        ),
+        "()",
     );
 
-    assert_eq!(main.ty(), c::CType::Function(vec![], Box::new(c::CType::Void)));
+    assert_eq!(main.ty(), CType::Function(ivec![], Box::new(CType::Void)));
 
     c::Module {
         includes: cbuilder.includes,
@@ -26,22 +31,22 @@ pub fn transpile_to_c(module: tir::Module) -> c::Module {
 
 struct CBuilder<'tir> {
     module: &'tir tir::Module,
-    structs: Vec<c::Struct>,
-    functions: Vec<c::Function>,
-    externals: Vec<c::ExternalFunction>,
+    structs: IVec<c::Struct, StructId>,
+    functions: IVec<c::Function, FunctionId>,
+    externals: IVec<c::ExternalFunction, ExternalId>,
     includes: Vec<String>,
     int_wrap: Option<StructId>,
     string_wrap: Option<StructId>,
-    generated_methods: HashMap<(Type, String), TypedGlobalId>,
+    generated_methods: HashMap<(Type, String), TypedFunctionId>,
 }
 
 impl<'tir> CBuilder<'tir> {
     fn new(module: &'tir tir::Module) -> Self {
         Self {
             module,
-            structs: Vec::new(),
-            functions: Vec::new(),
-            externals: Vec::new(),
+            structs: IVec::new(),
+            functions: IVec::new(),
+            externals: IVec::new(),
             includes: Vec::new(),
             int_wrap: None,
             string_wrap: None,
@@ -49,17 +54,15 @@ impl<'tir> CBuilder<'tir> {
         }
     }
 
-    fn add_struct(&mut self, fields: Vec<c::CType>) -> StructId {
-        let id = StructId(self.structs.len());
-        self.structs.push(c::Struct { fields });
-        id
+    fn add_struct(&mut self, fields: IVec<CType, StructFieldId>) -> StructId {
+        self.structs.push(c::Struct { fields })
     }
 
     fn get_int_struct(&mut self) -> StructId {
         match self.int_wrap {
             Some(id) => id,
             None => {
-                let id = self.add_struct(vec![c::CType::Int]);
+                let id = self.add_struct(ivec![CType::Int]);
                 self.int_wrap = Some(id);
                 id
             }
@@ -70,222 +73,231 @@ impl<'tir> CBuilder<'tir> {
         match self.string_wrap {
             Some(id) => id,
             None => {
-                let id = self.add_struct(vec![c::CType::Pointer(Box::new(c::CType::Char))]);
+                let id = self.add_struct(ivec![CType::Pointer(Box::new(CType::Char))]);
                 self.string_wrap = Some(id);
                 id
             }
         }
     }
 
-    fn function(&mut self, function: c::Function) -> TypedGlobalId {
-        let id = GlobalId(self.functions.len());
-        self.functions.push(function);
-        let ty = c::CType::Function(
-            self.functions[id.0].parameters.clone(),
-            Box::new(self.functions[id.0].return_type.clone()),
+    fn function(&mut self, function: c::Function) -> TypedFunctionId {
+        let id = self.functions.push(function);
+        let ty = CType::Function(
+            self.functions[id].parameters.clone(),
+            Box::new(self.functions[id].return_type.clone()),
         );
-        TypedGlobalId::new(id, ty)
+        TypedFunctionId::new(id, ty)
     }
 
-    fn ty2c(&mut self, ty: Type) -> c::CType {
+    fn ty2c(&mut self, ty: Type) -> CType {
         match ty {
-            Type::Int => c::CType::Struct(self.get_int_struct()),
-            Type::String => c::CType::Struct(self.get_string_struct()),
+            Type::Int => CType::Struct(self.get_int_struct()),
+            Type::String => CType::Struct(self.get_string_struct()),
             ty if ty.is_zero_sized() => panic!("Zero-sized type"),
-            _ => todo!("Arbitrary types are not implemented yet")
+            _ => todo!("Arbitrary types are not implemented yet"),
         }
     }
 
-    fn get_method(&mut self, object: Type, name: &str) -> TypedGlobalId {
-        if let Some(id) = self.generated_methods.get(&(object.clone(), name.to_string())) {
+    fn get_method(&mut self, object: Type, name: &str) -> TypedFunctionId {
+        if let Some(id) = self
+            .generated_methods
+            .get(&(object.clone(), name.to_string()))
+        {
             return id.clone();
         } else {
             let method = self.generate_method(object.clone(), name);
             let id = self.function(method);
-            self.generated_methods.insert((object, name.to_string()), id.clone());
+            self.generated_methods
+                .insert((object, name.to_string()), id.clone());
             id
         }
     }
 
-    fn include_if_needed(&mut self, name: &str) {
-        if !self.includes.contains(&name.to_string()) {
-            self.includes.push(name.to_string());
+    fn include_if_needed(&mut self, name: String) {
+        if !self.includes.contains(&name) {
+            self.includes.push(name);
         }
     }
 
     fn get_external(&mut self, name: &str) -> ExternalId {
-        if let Some((id, _fn)) = self.externals.iter().enumerate().find(|(_, e)| e.name == name) {
-            ExternalId(id)
-        } else {
-            let id = ExternalId(self.externals.len());
-            let char_ptr = c::CType::Pointer(Box::new(c::CType::Char));
-            let (args_ty, ret_ty) = match name {
-                "printf" => {
-                    self.include_if_needed("stdio.h");
-                    (vec![char_ptr.clone(), char_ptr], c::CType::Int)
-                }
-                _ => panic!("Unknown external function"),
-            };
-            self.externals.push(c::ExternalFunction {
-                name: name.to_string(),
-                parameters: args_ty,
-                return_type: ret_ty,
-            });
-            id
+        if let Some((id, _fn)) = self.externals.indexed_iter().find(|(_, e)| e.name == name) {
+            return id
         }
+
+        let (args_ty, ret_ty) = match name {
+            "printf" => {
+                let char_ptr = CType::Pointer(Box::new(CType::Char));
+                self.include_if_needed("stdio.h".to_string());
+                let mut params = IVec::new();
+                params.push(char_ptr.clone());
+                params.push(char_ptr.clone());
+                (params, CType::Int)
+            }
+            _ => panic!("Unknown external function"),
+        };
+
+        self.externals.push(c::ExternalFunction {
+            name: name.to_string(),
+            parameters: args_ty,
+            return_type: ret_ty,
+        })
     }
 
     fn generate_method(&mut self, object: Type, name: &str) -> c::Function {
+        // TODO: Workaround for the temporary implementation
+        let field0 = StructFieldId::from_index(0);
         match (object, name) {
             (Type::Int, "+2") => {
                 let int = self.ty2c(Type::Int);
-                let param0 = c::TypedParamId::new(ParamId(0), int.clone());
-                let param1 = c::TypedParamId::new(ParamId(1), int.clone());
+                let mut params = IVec::new();
+                let param0 = c::TypedParamId::new(params.push(int.clone()), int.clone());
+                let param1 = c::TypedParamId::new(params.push(int.clone()), int.clone());
                 c::Function {
-                    parameters: vec![int.clone(), int.clone()],
-                    body: vec![
-                        c::Statement::Return(
-                            Expr::new_struct_build(
-                                self.get_int_struct(),
-                                vec![Expr::new_plus(
-                                    Expr::new_struct_access(Expr::new_param(param0), 0, CType::Int),
-                                    Expr::new_struct_access(Expr::new_param(param1), 0, CType::Int),
-                                )],
-                            )
-                        ),
-                    ],
-                    locals: vec![],
-                    temps: vec![],
+                    parameters: params,
+                    body: vec![c::Statement::Return(Expr::new_struct_build(
+                        self.get_int_struct(),
+                        ivec![Expr::new_plus(
+                            Expr::new_struct_access(Expr::new_param(param0), field0, CType::Int),
+                            Expr::new_struct_access(Expr::new_param(param1), field0, CType::Int),
+                        )],
+                    ))],
+                    locals: IVec::new(),
+                    temps: IVec::new(),
                     return_type: int,
                 }
             }
             (Type::Int, "*2") => {
                 let int = self.ty2c(Type::Int);
-                let param0 = c::TypedParamId::new(ParamId(0), int.clone());
-                let param1 = c::TypedParamId::new(ParamId(1), int.clone());
+                let mut params = IVec::new();
+                let param0 = c::TypedParamId::new(params.push(int.clone()), int.clone());
+                let param1 = c::TypedParamId::new(params.push(int.clone()), int.clone());
                 c::Function {
-                    parameters: vec![int.clone(), int.clone()],
-                    body: vec![
-                        c::Statement::Return(
-                            Expr::new_struct_build(
-                                self.get_int_struct(),
-                                vec![Expr::new_multiply(
-                                    Expr::new_struct_access(Expr::new_param(param0), 0, c::CType::Int),
-                                    Expr::new_struct_access(Expr::new_param(param1), 0, c::CType::Int),
-                                )],
-                            )
-                        ),
-                    ],
-                    locals: vec![],
-                    temps: vec![],
+                    parameters: params,
+                    body: vec![c::Statement::Return(Expr::new_struct_build(
+                        self.get_int_struct(),
+                        ivec![Expr::new_multiply(
+                            Expr::new_struct_access(Expr::new_param(param0), field0, CType::Int),
+                            Expr::new_struct_access(Expr::new_param(param1), field0, CType::Int),
+                        )],
+                    ))],
+                    locals: ivec![],
+                    temps: ivec![],
                     return_type: int,
                 }
             }
             (Type::Int, "-2") => {
                 let int = self.ty2c(Type::Int);
-                let param0 = c::TypedParamId::new(ParamId(0), int.clone());
-                let param1 = c::TypedParamId::new(ParamId(1), int.clone());
+                let mut params = IVec::new();
+                let param0 = c::TypedParamId::new(params.push(int.clone()), int.clone());
+                let param1 = c::TypedParamId::new(params.push(int.clone()), int.clone());
                 c::Function {
-                    parameters: vec![int.clone(), int.clone()],
-                    body: vec![
-                        c::Statement::Return(
-                            Expr::new_struct_build(
-                                self.get_int_struct(),
-                                vec![Expr::new_minus(
-                                    Expr::new_struct_access(Expr::new_param(param0), 0, c::CType::Int),
-                                    Expr::new_struct_access(Expr::new_param(param1), 0, c::CType::Int),
-                                )],
-                            )
-                        ),
-                    ],
-                    locals: vec![],
-                    temps: vec![],
+                    parameters: params,
+                    body: vec![c::Statement::Return(Expr::new_struct_build(
+                        self.get_int_struct(),
+                        ivec![Expr::new_minus(
+                            Expr::new_struct_access(Expr::new_param(param0), field0, CType::Int),
+                            Expr::new_struct_access(Expr::new_param(param1), field0, CType::Int),
+                        )],
+                    ))],
+                    locals: ivec![],
+                    temps: ivec![],
                     return_type: int,
                 }
             }
             (Type::Int, "-1") => {
                 let int = self.ty2c(Type::Int);
-                let param = c::TypedParamId::new(ParamId(0), int.clone());
+                let mut params = IVec::new();
+                let param = c::TypedParamId::new(params.push(int.clone()), int.clone());
                 c::Function {
-                    parameters: vec![int.clone()],
-                    body: vec![
-                        c::Statement::Return(
-                            Expr::new_struct_build(
-                                self.get_int_struct(),
-                                vec![Expr::new_minus(
-                                    Expr::new_int(0),
-                                    Expr::new_struct_access(Expr::new_param(param), 0, c::CType::Int),
-                                )],
-                            )
-                        ),
-                    ],
-                    locals: vec![],
-                    temps: vec![],
+                    parameters: params,
+                    body: vec![c::Statement::Return(Expr::new_struct_build(
+                        self.get_int_struct(),
+                        ivec![Expr::new_minus(
+                            Expr::new_int(0),
+                            Expr::new_struct_access(Expr::new_param(param), field0, CType::Int),
+                        )],
+                    ))],
+                    locals: ivec![],
+                    temps: ivec![],
                     return_type: int,
                 }
             }
-            (Type::Function(tir::GlobalId::Intrinsic(0), _, _), "()") => {
-                let string = self.ty2c(Type::String);
-                let printf = self.get_external("printf");
-                let char_ptr = c::CType::Pointer(Box::new(c::CType::Char));
-                let typed_printf = TypedExternalId::new(printf, c::CType::Function(
-                    vec![char_ptr.clone(), char_ptr.clone()],
-                    Box::new(c::CType::Int))
-                );
-                let param = c::TypedParamId::new(ParamId(0), string.clone());
-                c::Function {
-                    parameters: vec![string.clone()],
-                    body: vec![c::Statement::Expression(
-                        Expr::new_call(
+            (Type::Intrinsic(id, _, _), "()") => match id.index() {
+                0 => {
+                    let string = self.ty2c(Type::String);
+                    let printf = self.get_external("printf");
+                    let char_ptr = CType::Pointer(Box::new(CType::Char));
+                    let typed_printf = TypedExternalId::new(
+                        printf,
+                        CType::Function(
+                            ivec![char_ptr.clone(), char_ptr.clone()],
+                            Box::new(CType::Int),
+                        ),
+                    );
+                    let mut params = IVec::new();
+                    let param = c::TypedParamId::new(params.push(string.clone()), string.clone());
+                    c::Function {
+                        parameters: params,
+                        body: vec![c::Statement::Expression(Expr::new_call(
                             Expr::new_external(typed_printf),
-                            vec![
+                            ivec![
                                 Expr::new_string("%s".to_string()),
-                                Expr::new_struct_access(Expr::new_param(param), 0, char_ptr),
+                                Expr::new_struct_access(Expr::new_param(param), field0, char_ptr),
                             ],
-                        )
-                    )],
-                    locals: vec![],
-                    temps: vec![],
-                    return_type: string,
+                        ))],
+                        locals: ivec![],
+                        temps: ivec![],
+                        return_type: string,
+                    }
                 }
-            }
-            (Type::Function(tir::GlobalId::Intrinsic(1), _, _), "()") => {
-                let string = self.ty2c(Type::String);
-                let printf = self.get_external("printf");
-                let char_ptr = c::CType::Pointer(Box::new(c::CType::Char));
-                let typed_printf = TypedExternalId::new(printf, c::CType::Function(
-                    vec![char_ptr.clone(), char_ptr.clone()],
-                    Box::new(c::CType::Int))
-                );
-                let param = c::TypedParamId::new(ParamId(0), string.clone());
-                c::Function {
-                    parameters: vec![string.clone()],
-                    body: vec![c::Statement::Expression(
-                        Expr::new_call(
+                1 => {
+                    let string = self.ty2c(Type::String);
+                    let printf = self.get_external("printf");
+                    let char_ptr = CType::Pointer(Box::new(CType::Char));
+                    let typed_printf = TypedExternalId::new(
+                        printf,
+                        CType::Function(
+                            ivec![char_ptr.clone(), char_ptr.clone()],
+                            Box::new(CType::Int),
+                        ),
+                    );
+                    let mut params = IVec::new();
+                    let param = c::TypedParamId::new(params.push(string.clone()), string.clone());
+                    c::Function {
+                        parameters: params,
+                        body: vec![c::Statement::Expression(Expr::new_call(
                             Expr::new_external(typed_printf),
-                            vec![
+                            ivec![
                                 Expr::new_string("%s\n".to_string()),
-                                Expr::new_struct_access(Expr::new_param(param), 0, char_ptr),
+                                Expr::new_struct_access(Expr::new_param(param), field0, char_ptr),
                             ],
-                        )
-                    )],
-                    locals: vec![],
-                    temps: vec![],
-                    return_type: string,
+                        ))],
+                        locals: ivec![],
+                        temps: ivec![],
+                        return_type: string,
+                    }
                 }
-            }
-            (Type::Function(tir::GlobalId::Function(id), args_ty, ret_ty), "()") => {
-                let args_ty = args_ty.into_iter().filter_map(
-                    |ty| if ty.is_zero_sized() { None } else { Some(self.ty2c(ty)) }
-                ).collect();
+                _ => panic!("Unknown intrinsic"),
+            },
+            (Type::Function(id, args_ty, ret_ty), "()") => {
+                let args_ty = args_ty
+                    .into_iter()
+                    .filter_map(|ty| {
+                        if ty.is_zero_sized() {
+                            None
+                        } else {
+                            Some(self.ty2c(ty))
+                        }
+                    })
+                    .collect();
 
                 let ret_ty = if ret_ty.is_zero_sized() {
-                    c::CType::Void
+                    CType::Void
                 } else {
                     self.ty2c(*ret_ty)
                 };
 
-                let mut builder = CExpressionBuilder::new(self);
+                let mut builder = CExpressionBuilder::new(self, id);
                 let body = builder.translate_function(id);
 
                 c::Function {
@@ -303,28 +315,29 @@ impl<'tir> CBuilder<'tir> {
 
 struct CExpressionBuilder<'m, 'tir> {
     module: &'m mut CBuilder<'tir>,
-    locals: Vec<c::CType>,
-    temps: Vec<c::CType>,
-    registered_locals: Vec<Option<c::LocalId>>,
+    function: &'tir tir::Function,
+    locals: IVec<CType, LocalId>,
+    temps: IVec<CType, TempId>,
+    registered_locals: IVec<Option<LocalId>, tir::LocalId>,
 }
 
 type StatementAndResult = (Vec<c::Statement>, Option<Expr>);
 
 impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
-    fn new(module: &'m mut CBuilder<'tir>) -> Self {
-        let local_count = module.module.functions[0].locals.len();
+    fn new(module: &'m mut CBuilder<'tir>, function_id: tir::FunctionId) -> Self {
+        let local_count = module.module.functions[function_id].locals.len();
+        let function = &module.module.functions[function_id];
         Self {
             module,
-            locals: Vec::new(),
-            temps: Vec::new(),
-            registered_locals: vec![None; local_count],
+            function,
+            locals: ivec![],
+            temps: ivec![],
+            registered_locals: ivec![None; local_count],
         }
     }
 
-    fn temp(&mut self, ty: c::CType) -> c::TypedTempId {
-        let id = c::TempId(self.temps.len());
-        self.temps.push(ty.clone());
-        c::TypedTempId::new(id, ty)
+    fn temp(&mut self, ty: CType) -> c::TypedTempId {
+        c::TypedTempId::new(self.temps.push(ty.clone()), ty)
     }
 
     fn ignore_result(&mut self, stmts: StatementAndResult) -> Vec<c::Statement> {
@@ -339,7 +352,7 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
     fn merge_results(
         &mut self,
         stmts: Vec<StatementAndResult>,
-        types: Vec<c::CType>
+        types: Vec<CType>,
     ) -> (Vec<c::Statement>, Vec<Expr>) {
         let mut statements = Vec::new();
         let mut results = Vec::new();
@@ -359,20 +372,21 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
         (statements, results)
     }
 
-    fn get_local(&mut self, local: tir::LocalId) -> c::LocalId {
-        if let Some(id) = self.registered_locals[local.0] {
+    fn get_local(&mut self, local: tir::LocalId) -> LocalId {
+        if let Some(id) = self.registered_locals[local] {
             id
         } else {
-            let id = c::LocalId(self.locals.len());
-            let ty = self.module.ty2c(self.module.module.functions[0].locals[local.0].clone());
-            self.locals.push(ty);
-            self.registered_locals[local.0] = Some(id);
+            let ty = self
+                .module
+                .ty2c(self.function.locals[local].clone());
+            let id = self.locals.push(ty);
+            self.registered_locals[local] = Some(id);
             id
         }
     }
 
-    fn translate_function(&mut self, function_id: usize) -> Vec<c::Statement> {
-        let function = &self.module.module.functions[function_id];
+    fn translate_function(&mut self, id: tir::FunctionId) -> Vec<c::Statement> {
+        let function = &self.module.module.functions[id];
         let body = &function.body;
         let (mut statements, result) = self.translate_expression(body);
         if let Some(result) = result {
@@ -398,16 +412,16 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
                 last
             }
             tir::Expression::Constant(constant) => {
-                let constant = &self.module.module.constants[constant.0];
+                let constant = &self.module.module.constants[*constant];
                 let expr = match constant {
-                    tir::Constant::Unit => return (Vec::new(), None),
-                    tir::Constant::Int(int) => Expr::new_struct_build(
+                    tir::Const::Unit => return (Vec::new(), None),
+                    tir::Const::Int(int) => Expr::new_struct_build(
                         self.module.get_int_struct(),
-                        vec![Expr::new_int(*int)],
+                        ivec![Expr::new_int(*int)],
                     ),
-                    tir::Constant::String(string) => Expr::new_struct_build(
+                    tir::Const::String(string) => Expr::new_struct_build(
                         self.module.get_string_struct(),
-                        vec![Expr::new_string(string.clone())],
+                        ivec![Expr::new_string(string.clone())],
                     ),
                 };
 
@@ -418,14 +432,17 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
                     None
                 } else {
                     let local = self.get_local(*local);
-                    Some(Expr::new_local(TypedLocalId::new(local, self.module.ty2c(ty.clone()))))
+                    Some(Expr::new_local(TypedLocalId::new(
+                        local,
+                        self.module.ty2c(ty.clone()),
+                    )))
                 }
             }
-            tir::Expression::Global(_) => {
+            tir::Expression::Function(_) | tir::Expression::Intrinsic(_) => {
                 if ty.is_zero_sized() {
                     None
                 } else {
-                    todo!("Standalone global expressions are not implemented yet")
+                    todo!("Expressions on functions are not implemented yet")
                 }
             }
             tir::Expression::Method {
@@ -437,8 +454,14 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
                 result.append(&mut obj_statements);
 
                 let id = self.module.get_method(ty.clone(), method_name);
-                let arguments = args.iter().map(|arg| self.translate_expression(arg)).collect();
-                let types = args.iter().map(|arg| self.module.ty2c(arg.ty.clone())).collect();
+                let arguments = args
+                    .iter()
+                    .map(|arg| self.translate_expression(arg))
+                    .collect();
+                let types = args
+                    .iter()
+                    .map(|arg| self.module.ty2c(arg.ty.clone()))
+                    .collect();
                 let (mut stmts, mut args) = self.merge_results(arguments, types);
                 result.append(&mut stmts);
 
@@ -446,7 +469,7 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
                     args.insert(0, obj.expect("It must contain a value"));
                 }
 
-                Some(Expr::new_call(Expr::new_global(id), args))
+                Some(Expr::new_call(Expr::new_global(id), args.into()))
             }
             tir::Expression::Assign {
                 var: local,

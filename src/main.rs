@@ -9,6 +9,10 @@ mod c;
 mod transpile;
 mod span;
 mod emit;
+mod ivec;
+
+#[macro_use(paste)]
+extern crate paste;
 
 use logos::Logos;
 use ast::ParsingError;
@@ -62,7 +66,7 @@ fn main() {
         },
     };
 
-    println!("{}", &hir);
+    println!("{:#?}", &hir);
 
     let typed = solve_types(hir);
 

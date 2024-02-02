@@ -1,5 +1,7 @@
 use std::fmt::Write;
-use crate::c::{CType, Expression, ExternalId, Function, GlobalId, LocalId, Module, ParamId, Precedence, Statement, Struct, StructId, TempId};
+use crate::c::{CType, Expression, ExternalId, Function, FunctionId, LocalId, Module, ParamId, Precedence, Statement, Struct, StructFieldId, StructId, TempId};
+use crate::ivec;
+use crate::ivec::{IIndex, IVec};
 
 const ALPHABET: &'static [u8] =
     b"abcdefghijklmnopqrstuvwxyz\
@@ -80,9 +82,9 @@ impl Iterator for Namer {
 struct Builder<'c> {
     result: Vec<u8>,
     module: &'c Module,
-    struct_names: Vec<String>,
-    function_names: Vec<String>,
-    struct_fields: Vec<String>,
+    struct_names: IVec<String, StructId>,
+    function_names: IVec<String, FunctionId>,
+    struct_fields: IVec<String, StructFieldId>,
     struct_field_namer: Namer,
 }
 
@@ -97,7 +99,7 @@ impl<'c> Builder<'c> {
             module,
             struct_names,
             function_names,
-            struct_fields: Vec::new(),
+            struct_fields: ivec![],
             struct_field_namer: Namer::new(STRUCT_NAMES_OFFSET, STRUCT_NAMES_RANGE),
         }
     }
@@ -107,29 +109,29 @@ impl<'c> Builder<'c> {
     }
 
     fn get_struct_name(&self, struct_id: StructId) -> String {
-        self.struct_names[struct_id.0].clone()
+        self.struct_names[struct_id].clone()
     }
 
-    fn get_function_name(&self, function_id: GlobalId) -> String {
-        self.function_names[function_id.0].clone()
+    fn get_function_name(&self, function_id: FunctionId) -> String {
+        self.function_names[function_id].clone()
     }
 
-    fn get_struct_field(&mut self, field_no: usize) -> String {
-        while field_no >= self.struct_fields.len() {
+    fn get_struct_field(&mut self, field_no: StructFieldId) -> String {
+        while field_no.index() >= self.struct_fields.len() {
             self.struct_fields.push(self.struct_field_namer.next().unwrap());
         }
         self.struct_fields[field_no].clone()
     }
 
     fn get_external_name(&self, external_id: ExternalId) -> String {
-        self.module.externals[external_id.0].name.clone()
+        self.module.externals[external_id].name.clone()
     }
 }
 
 struct LocalNames {
-    params: Vec<String>,
-    locals: Vec<String>,
-    temps: Vec<String>,
+    params: IVec<String, ParamId>,
+    locals: IVec<String, LocalId>,
+    temps: IVec<String, TempId>,
 }
 
 impl LocalNames {
@@ -147,15 +149,15 @@ impl LocalNames {
     }
 
     fn get_param(&self, param_id: ParamId) -> String {
-        self.params[param_id.0].clone()
+        self.params[param_id].clone()
     }
 
     fn get_local(&self, local_id: LocalId) -> String {
-        self.locals[local_id.0].clone()
+        self.locals[local_id].clone()
     }
 
     fn get_temp(&self, temp_id: TempId) -> String {
-        self.temps[temp_id.0].clone()
+        self.temps[temp_id].clone()
     }
 }
 
@@ -178,12 +180,12 @@ fn emit_module<'c>(builder: &mut Builder<'c>, module: &'c Module) -> std::fmt::R
         writeln!(builder, "#include <{}>", include)?;
     }
 
-    for (id, struct_) in module.structs.iter().enumerate() {
-        emit_struct(builder, StructId(id), struct_)?;
+    for (id, struct_) in module.structs.indexed_iter() {
+        emit_struct(builder, id, struct_)?;
     }
 
-    for (id, function) in module.functions.iter().enumerate() {
-        emit_function(builder, GlobalId(id), function)?;
+    for (id, function) in module.functions.indexed_iter() {
+        emit_function(builder, id, function)?;
     }
 
     write!(builder, "int main(){{")?;
@@ -197,9 +199,9 @@ fn emit_module<'c>(builder: &mut Builder<'c>, module: &'c Module) -> std::fmt::R
 
 fn emit_struct(builder: &mut Builder, id: StructId, struct_: &Struct) -> std::fmt::Result {
     write!(builder, "typedef struct{{")?;
-    for field in struct_.fields.iter().cloned() {
-        emit_decl(builder, field, |builder| {
-            let name = builder.get_struct_field(0);
+    for (id, field) in struct_.fields.indexed_iter() {
+        emit_decl(builder, field.clone(), |builder| {
+            let name = builder.get_struct_field(id);
             write!(builder, "{}", name)
         })?;
         write!(builder, ";")?;
@@ -210,7 +212,7 @@ fn emit_struct(builder: &mut Builder, id: StructId, struct_: &Struct) -> std::fm
 
 fn emit_function<'c>(
     builder: &mut Builder<'c>,
-    id: GlobalId,
+    id: FunctionId,
     function: &'c Function
 ) -> std::fmt::Result {
     emit_decl(builder, function.return_type.clone(), |b| {
@@ -220,29 +222,31 @@ fn emit_function<'c>(
     write!(builder, "(")?;
     let names = LocalNames::new(function);
 
-    for (i, arg) in function.parameters.iter().enumerate() {
-        emit_decl(builder, arg.clone(), |b| {
-            let name = names.get_param(ParamId(i));
-            write!(b, "{}", name)
-        })?;
-        if i != function.parameters.len() - 1 {
+    let mut first = true;
+    for (id, arg) in function.parameters.indexed_iter() {
+        if !first {
             write!(builder, ",")?;
         }
+        emit_decl(builder, arg.clone(), |b| {
+            let name = names.get_param(id);
+            write!(b, "{}", name)
+        })?;
+        first = false;
     }
 
     write!(builder, "){{")?;
 
-    for (i, local) in function.locals.iter().enumerate() {
+    for (id, local) in function.locals.indexed_iter() {
         emit_decl(builder, local.clone(), |b| {
-            let name = names.get_local(LocalId(i));
+            let name = names.get_local(id);
             write!(b, "{}", name)
         })?;
         write!(builder, ";")?;
     }
 
-    for (i, temp) in function.temps.iter().enumerate() {
+    for (id, temp) in function.temps.indexed_iter() {
         emit_decl(builder, temp.clone(), |b| {
-            let name = names.get_temp(TempId(i));
+            let name = names.get_temp(id);
             write!(b, "{}", name)
         })?;
         write!(builder, ";")?;

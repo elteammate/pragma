@@ -1,28 +1,37 @@
-pub use crate::hir::{ConstId, GlobalId, LocalId};
+use crate::c::ParamId;
+pub use crate::hir::{ConstId, FunctionId, IntrinsicId, LocalId};
+use crate::ivec::IVec;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Type {
     Unit,
     Int,
     String,
-    Function(GlobalId, Vec<Type>, Box<Type>),
+    Function(FunctionId, IVec<Type, ParamId>, Box<Type>),
+    Intrinsic(IntrinsicId, IVec<Type, ParamId>, Box<Type>),
 }
 
 impl Type {
     pub fn is_zero_sized(&self) -> bool {
-        matches!(self, Type::Unit | Type::Function(..))
+        match self {
+            Type::Unit => true,
+            Type::Int => false,
+            Type::String => false,
+            Type::Function(_, _, _) => true,
+            Type::Intrinsic(_, _, _) => true,
+        }
     }
 }
 
 #[derive(Debug)]
 pub struct Module {
-    pub constants: Vec<Constant>,
-    pub functions: Vec<Function>,
+    pub constants: IVec<Const, ConstId>,
+    pub functions: IVec<Function, FunctionId>,
 }
 
 #[derive(Debug)]
 pub struct Function {
-    pub locals: Vec<Type>,
+    pub locals: IVec<Type, LocalId>,
     pub ident: String,
     pub body: Typed,
 }
@@ -37,11 +46,13 @@ pub struct Typed {
 pub enum Expression {
     Constant(ConstId),
     Local(LocalId),
-    Global(GlobalId),
+    Function(FunctionId),
+    Intrinsic(IntrinsicId),
     Block(Vec<Typed>, Typed),
     Method {
         object: Typed,
         name: String,
+        // TODO: maybe reconsider the type: IVec<Typed, ParamId>
         args: Vec<Typed>,
     },
     Assign {
@@ -51,18 +62,18 @@ pub enum Expression {
 }
 
 #[derive(Debug)]
-pub enum Constant {
+pub enum Const {
     Unit,
     Int(i64),
     String(String),
 }
 
-impl Constant {
+impl Const {
     pub fn ty(&self) -> Type {
         match self {
-            Constant::Unit => Type::Unit,
-            Constant::Int(_) => Type::Int,
-            Constant::String(_) => Type::String,
+            Const::Unit => Type::Unit,
+            Const::Int(_) => Type::Int,
+            Const::String(_) => Type::String,
         }
     }
 }

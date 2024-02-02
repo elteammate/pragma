@@ -1,7 +1,8 @@
-use std::collections::HashMap;
-use crate::ast;
+use crate::{ast, ivec};
 use crate::ast::Ast;
 use crate::hir;
+use crate::ivec::{ISource, IVec};
+use std::collections::HashMap;
 
 pub enum HirError {
     UnknownName(String),
@@ -11,137 +12,128 @@ pub enum HirError {
 type HirResult<T> = Result<T, HirError>;
 
 struct GlobalResolver {
-    global_counter: usize,
-    globals: HashMap<String, hir::GlobalId>,
-    constants: Vec<hir::Constant>,
-    intrinsics: Vec<String>,
+    function_ids: HashMap<String, hir::FunctionId>,
+    intrinsic_ids: HashMap<String, hir::IntrinsicId>,
+    constants: IVec<hir::Const, hir::ConstId>,
+    intrinsics: IVec<String, hir::IntrinsicId>,
 }
 
 impl GlobalResolver {
     fn new(intrinsics: Vec<String>) -> Self {
-        let globals = intrinsics.iter()
-            .enumerate()
-            .map(|(index, name)| (name.clone(), hir::GlobalId::Intrinsic(index)))
-            .collect::<HashMap<_, _>>();
+        let intrinsics: IVec<String, hir::IntrinsicId> = intrinsics.into_iter().collect();
+
+        let intrinsic_ids = intrinsics
+            .indexed_iter()
+            .map(|(index, name)| (name.clone(), index))
+            .collect();
 
         Self {
-            globals,
-            constants: Vec::new(),
-            global_counter: 0,
+            function_ids: HashMap::new(),
+            intrinsic_ids,
+            constants: IVec::new(),
             intrinsics,
         }
     }
 
-    fn get(&mut self, name: &str) -> HirResult<hir::GlobalId> {
-        if let Some(&id) = self.globals.get(name) {
-            Ok(id)
-        } else {
-            Err(HirError::UnknownName(name.to_string()))
-        }
+    fn find_function(&self, name: &str) -> Option<hir::FunctionId> {
+        self.function_ids.get(name).copied()
     }
 
-    fn add_constant(&mut self, constant: hir::Constant) -> hir::ConstId {
-        let id = hir::ConstId(self.constants.len());
-        self.constants.push(constant);
-        id
-    }
-
-    fn add_function(&mut self, name: String) -> hir::GlobalId {
-        let id = hir::GlobalId::Function(self.global_counter);
-        self.global_counter += 1;
-        self.globals.insert(name, id);
-        id
+    fn find_intrinsic(&self, name: &str) -> Option<hir::IntrinsicId> {
+        self.intrinsic_ids.get(name).copied()
     }
 }
 
 struct Resolver {
-    local_counter: usize,
-    locals: Vec<HashMap<String, hir::LocalId>>,
+    locals: ISource<hir::LocalId>,
+    local_scopes: Vec<HashMap<String, hir::LocalId>>,
     globals: GlobalResolver,
 }
 
 impl Resolver {
     fn new(globals: GlobalResolver) -> Self {
         Self {
-            local_counter: 0,
-            locals: Vec::new(),
+            locals: ISource::new(),
+            local_scopes: Vec::new(),
             globals,
         }
     }
 
+    fn find_local(&mut self, name: &str) -> Option<hir::LocalId> {
+        self.local_scopes
+            .iter()
+            .rev()
+            .find_map(|scope| scope.get(name).copied())
+    }
+
+    fn get(&mut self, name: &str) -> HirResult<hir::Expression> {
+        if let Some(id) = self.find_local(name) {
+            Ok(hir::Expression::Local(id))
+        } else if let Some(id) = self.globals.find_function(name) {
+            Ok(hir::Expression::Function(id))
+        } else if let Some(id) = self.globals.find_intrinsic(name) {
+            Ok(hir::Expression::Intrinsic(id))
+        } else {
+            Err(HirError::UnknownName(name.to_string()))
+        }
+    }
+
     fn get_local(&mut self, name: &str) -> HirResult<hir::LocalId> {
-        if let Some(&id) = self.locals.last()
-            .and_then(|locals| locals.get(name))
-        {
+        if let Some(id) = self.find_local(name) {
             Ok(id)
         } else {
             Err(HirError::UnknownName(name.to_string()))
         }
     }
 
-    fn get(&mut self, name: &str) -> HirResult<hir::Expression> {
-        if let Ok(id) = self.get_local(name) {
-            Ok(hir::Expression::Local(id))
-        } else {
-            let global = self.globals.get(name)?;
-            Ok(hir::Expression::Global(global))
-        }
-    }
-
-    fn add_local(&mut self, name: String) -> hir::LocalId {
-        let id = hir::LocalId(self.local_counter);
-        self.local_counter += 1;
-        self.locals.last_mut().unwrap().insert(name.to_string(), id);
-        id
-    }
-
     fn with_scope<F, T>(&mut self, f: F) -> HirResult<T>
-        where F: FnOnce(&mut Self) -> HirResult<T>
+    where
+        F: FnOnce(&mut Self) -> HirResult<T>,
     {
-        self.locals.push(HashMap::new());
+        self.local_scopes.push(HashMap::new());
         let res = f(self)?;
-        self.locals.pop();
+        self.local_scopes.pop();
         Ok(res)
     }
 
-    fn add_constant(&mut self, constant: hir::Constant) -> hir::ConstId {
-        self.globals.add_constant(constant)
+    fn add_local(&mut self, name: String) -> hir::LocalId {
+        let id = self.locals.next();
+        self.local_scopes
+            .last_mut()
+            .expect("No local scope")
+            .insert(name, id);
+        id
     }
 }
 
 pub fn ast_to_hir(intrinsics: Vec<String>, module: ast::Module) -> HirResult<hir::Module> {
     let mut globals = GlobalResolver::new(intrinsics);
 
-    for item in &module.items {
-        match &item.0 {
-            ast::Item::Function { ident, .. } => {
-                globals.add_function(ident.clone());
-            }
-        }
-    }
+    let ast_functions: IVec<ast::Function, hir::FunctionId> =
+        IVec::from_iter(module.items.into_iter().map(|x| x.0));
 
-    let mut functions = Vec::new();
+    globals.function_ids = ast_functions
+        .indexed_iter()
+        .map(|(id, f)| (f.ident.clone(), id))
+        .collect();
 
-    for item in module.items {
-        match item.0 {
-            ast::Item::Function { body, ident } => {
-                let mut resolver = Resolver::new(globals);
-                let body = resolver.with_scope(|resolver| {
-                    ast_to_hir_expression(resolver, body.0)
-                })?;
+    let mut functions: IVec<hir::Function, hir::FunctionId> = ivec![];
 
-                let (global_resolver, function) = (
-                    resolver.globals,
-                    hir::Function {
-                        locals: resolver.local_counter,
-                        ident,
-                        body,
-                    }
-                );
-                functions.push(function);
-                globals = global_resolver;
-            }
-        }
+    for ast::Function { body, ident } in ast_functions {
+        let mut resolver = Resolver::new(globals);
+        let body = resolver.with_scope(
+            |resolver|
+                ast_to_hir_expression(resolver, body.0)
+        )?;
+
+        let function = hir::Function {
+            locals: resolver.locals,
+            ident,
+            body,
+        };
+
+        globals = resolver.globals;
+        functions.push(function);
     }
 
     let constants = globals.constants;
@@ -152,21 +144,28 @@ pub fn ast_to_hir(intrinsics: Vec<String>, module: ast::Module) -> HirResult<hir
     })
 }
 
-fn ast_to_hir_expression(resolver: &mut Resolver, expr: ast::Expression) -> HirResult<hir::Expression> {
+fn ast_to_hir_expression(
+    resolver: &mut Resolver,
+    expr: ast::Expression,
+) -> HirResult<hir::Expression> {
     match expr {
         ast::Expression::Block(statements, last) => resolver.with_scope(|resolver| {
-            let statements = statements.into_iter()
+            let statements = statements
+                .into_iter()
                 .map(|expr| ast_to_hir_expression(resolver, expr.0))
                 .collect::<HirResult<Vec<_>>>()?;
             let last = last
                 .map(|expr| ast_to_hir_expression(resolver, expr.0))
                 .transpose()?
-                .unwrap_or(hir::Expression::Const(resolver.add_constant(hir::Constant::Unit)));
+                .unwrap_or(hir::Expression::Const(
+                    resolver.globals.constants.push(hir::Const::Unit)
+                ));
             Ok(hir::Expression::Block(statements, Box::new(last)))
         }),
         ast::Expression::Call { callee, args } => {
             let callee = ast_to_hir_expression(resolver, callee.0)?;
-            let args = args.into_iter()
+            let args = args
+                .into_iter()
                 .map(|expr| ast_to_hir_expression(resolver, expr.0))
                 .collect::<HirResult<Vec<_>>>()?;
             Ok(hir::Expression::Method {
@@ -174,27 +173,29 @@ fn ast_to_hir_expression(resolver: &mut Resolver, expr: ast::Expression) -> HirR
                 name: "()".to_string(),
                 args,
             })
-        },
+        }
         ast::Expression::Literal(literal) => {
             let constant = match literal {
-                ast::Literal::String(s) => hir::Constant::String(s),
-                ast::Literal::Number(n) => hir::Constant::Int(n),
+                ast::Literal::String(s) => hir::Const::String(s),
+                ast::Literal::Number(n) => hir::Const::Int(n),
             };
-            Ok(hir::Expression::Const(resolver.add_constant(constant)))
-        },
+            Ok(hir::Expression::Const(resolver.globals.constants.push(constant)))
+        }
         ast::Expression::Ident(ident) => resolver.get(&ident),
-        ast::Expression::Binary { op: Ast(ast::BinaryOp::Assign, _), lhs, rhs } => {
-            match lhs.0 {
-                ast::Expression::Ident(ident) => {
-                    let rhs = ast_to_hir_expression(resolver, rhs.0)?;
-                    let id = resolver.get_local(&ident)?;
-                    Ok(hir::Expression::Assign {
-                        var: id,
-                        expr: Box::new(rhs),
-                    })
-                },
-                not_ident => Err(HirError::ExpectedIdentifier(not_ident)),
+        ast::Expression::Binary {
+            op: Ast(ast::BinaryOp::Assign, _),
+            lhs,
+            rhs,
+        } => match lhs.0 {
+            ast::Expression::Ident(ident) => {
+                let rhs = ast_to_hir_expression(resolver, rhs.0)?;
+                let id = resolver.get_local(&ident)?;
+                Ok(hir::Expression::Assign {
+                    var: id,
+                    expr: Box::new(rhs),
+                })
             }
+            not_ident => Err(HirError::ExpectedIdentifier(not_ident)),
         },
         ast::Expression::Binary { op, lhs, rhs } => {
             let lhs = ast_to_hir_expression(resolver, lhs.0)?;
@@ -210,7 +211,7 @@ fn ast_to_hir_expression(resolver: &mut Resolver, expr: ast::Expression) -> HirR
                 name: op,
                 args: vec![rhs],
             })
-        },
+        }
         ast::Expression::Unary { op, expr } => {
             let expr = ast_to_hir_expression(resolver, expr.0)?;
             let op = match op.0 {
@@ -222,14 +223,15 @@ fn ast_to_hir_expression(resolver: &mut Resolver, expr: ast::Expression) -> HirR
                 name: op,
                 args: Vec::new(),
             })
-        },
+        }
         ast::Expression::Definition { ident, expr } => {
             let expr = ast_to_hir_expression(resolver, expr.0)?;
             let id = resolver.add_local(ident.0);
+
             Ok(hir::Expression::Assign {
                 var: id,
                 expr: Box::new(expr),
             })
-        },
+        }
     }
 }

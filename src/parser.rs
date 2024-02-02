@@ -74,13 +74,13 @@ pub fn parse_program(lex: &mut Lex) -> ParsingResult<Module> {
     return Ok(Module { items });
 }
 
-fn parse_item(lex: &mut Lex) -> ParsingResult<Ast<Item>> {
+fn parse_item(lex: &mut Lex) -> ParsingResult<Ast<Function>> {
     let start = eat!(lex, Token::Fn)?.1;
     let ident = eat!(lex, Token::Ident(s) => s)?.0.to_string();
     eat!(lex, Token::LParen)?;
     eat!(lex, Token::RParen)?;
     let body @ Ast(_, end) = parse_block(lex)?;
-    Ok(Ast(Item::Function { ident, body }, start.merge(end)))
+    Ok(Ast(Function { ident, body }, start.merge(end)))
 }
 
 fn parse_block(lex: &mut Lex) -> ParsingResult<Ast<Expression>> {

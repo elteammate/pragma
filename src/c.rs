@@ -1,20 +1,13 @@
-pub use crate::tir::LocalId;
-use paste::paste;
+use crate::create_index;
+use crate::ivec::IVec;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct StructId(pub usize);
-
-#[derive(Debug, Clone, Copy)]
-pub struct TempId(pub usize);
-
-#[derive(Debug, Clone, Copy)]
-pub struct GlobalId(pub usize);
-
-#[derive(Debug, Clone, Copy)]
-pub struct ExternalId(pub usize);
-
-#[derive(Debug, Clone, Copy)]
-pub struct ParamId(pub usize);
+create_index!(pub StructId);
+create_index!(pub TempId);
+create_index!(pub FunctionId);
+create_index!(pub ExternalId);
+create_index!(pub ParamId);
+create_index!(pub LocalId);
+create_index!(pub StructFieldId);
 
 macro_rules! typed_id {
     ($name:ident) => {
@@ -46,37 +39,37 @@ macro_rules! typed_id {
 
 typed_id!(LocalId);
 typed_id!(TempId);
-typed_id!(GlobalId);
+typed_id!(FunctionId);
 typed_id!(ExternalId);
 typed_id!(ParamId);
 
 #[derive(Debug)]
 pub struct Struct {
-    pub fields: Vec<CType>,
+    pub fields: IVec<CType, StructFieldId>,
 }
 
 #[derive(Debug)]
 pub struct Module {
     pub includes: Vec<String>,
-    pub structs: Vec<Struct>,
-    pub functions: Vec<Function>,
-    pub externals: Vec<ExternalFunction>,
-    pub main: Option<GlobalId>,
+    pub structs: IVec<Struct, StructId>,
+    pub functions: IVec<Function, FunctionId>,
+    pub externals: IVec<ExternalFunction, ExternalId>,
+    pub main: Option<FunctionId>,
 }
 
 #[derive(Debug)]
 pub struct ExternalFunction {
     pub name: String,
-    pub parameters: Vec<CType>,
+    pub parameters: IVec<CType, ParamId>,
     pub return_type: CType,
 }
 
 #[derive(Debug)]
 pub struct Function {
-    pub parameters: Vec<CType>,
+    pub parameters: IVec<CType, ParamId>,
     pub body: Vec<Statement>,
-    pub locals: Vec<CType>,
-    pub temps: Vec<CType>,
+    pub locals: IVec<CType, LocalId>,
+    pub temps: IVec<CType, TempId>,
     pub return_type: CType,
 }
 
@@ -87,7 +80,7 @@ pub enum CType {
     Void,
     Struct(StructId),
     Pointer(Box<CType>),
-    Function(Vec<CType>, Box<CType>),
+    Function(IVec<CType, ParamId>, Box<CType>),
 }
 
 impl CType {
@@ -232,9 +225,9 @@ create_expressions! {
     Local(id: TypedLocalId as LocalId)[Precedence::Lowest] : id.ty();
     Param(id: TypedParamId as ParamId)[Precedence::Lowest] : id.ty();
     Temp(id: TypedTempId as TempId)[Precedence::Lowest] : id.ty();
-    Global(id: TypedGlobalId as GlobalId)[Precedence::Lowest] : id.ty();
+    Global(id: TypedFunctionId as FunctionId)[Precedence::Lowest] : id.ty();
     External(id: TypedExternalId as ExternalId)[Precedence::Lowest] : id.ty();
-    Call(f: Expr as Box<Expr>, args: Vec<Expr>)[Precedence::SuffixUnary] : {
+    Call(f: Expr as Box<Expr>, args: IVec<Expr, ParamId>)[Precedence::SuffixUnary] : {
         match &f.ty {
             CType::Function(params, ret) => {
                 assert_eq!(params.len(), args.len());
@@ -293,7 +286,7 @@ create_expressions! {
         x.ty.clone()
     };
     // Type is left blank because it's determined by the struct
-    StructAccess(x: Expr as Box<Expr>, field: usize)[Precedence::SuffixUnary] : ;
+    StructAccess(x: Expr as Box<Expr>, field: StructFieldId)[Precedence::SuffixUnary] : ;
     // Type checking is left for the caller
-    StructBuild(id: StructId, fields: Vec<Expr>)[Precedence::Lowest] : CType::Struct(id);
+    StructBuild(id: StructId, fields: IVec<Expr, StructFieldId>)[Precedence::Lowest] : CType::Struct(id);
 }
