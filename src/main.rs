@@ -78,9 +78,14 @@ fn main() {
 
     let c = emit::emit(&c);
 
-    println!("{}", &c);
+    println!("{}\n", &c);
+
+    println!("Size: {} bytes\n", c.len());
+    println!("Writing to output/out.c");
 
     std::fs::write("output/out.c", c).unwrap();
+
+    println!("\nCompiling output/out.c (gcc)");
 
     let output = std::process::Command::new("gcc")
         .arg("output/out.c")
@@ -92,6 +97,8 @@ fn main() {
     if !output.status.success() {
         println!("GCC failed: {}", String::from_utf8_lossy(&output.stderr));
     }
+
+    println!("\nRunning output/out");
 
     let output = std::process::Command::new("./output/out")
         .output()
