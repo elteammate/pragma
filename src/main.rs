@@ -64,6 +64,10 @@ fn main() {
             println!("Expected identifier: {:?}", expr);
             return;
         },
+        Err(names::HirError::UnknownTypeName(name)) => {
+            println!("Unknown type name: {}", name);
+            return;
+        },
     };
 
     println!("{:#?}", &hir);

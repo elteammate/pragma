@@ -12,25 +12,41 @@ pub enum TypeError {
 
 type TypeResult<T> = Result<T, TypeError>;
 
+fn const_ty(c: &hir::Const) -> Type {
+    match c {
+        hir::Const::Unit => Type::Unit,
+        hir::Const::Int(_) => Type::Int,
+        hir::Const::String(_) => Type::String,
+    }
+}
+
+fn eval_type_expr(expr: &hir::TypeExpr) -> Type {
+    match expr {
+        hir::TypeExpr::Unit => Type::Unit,
+        hir::TypeExpr::Int => Type::Int,
+        hir::TypeExpr::String => Type::String,
+    }
+}
+
 pub fn solve_types(module: hir::Module) -> TypeResult<tir::Module> {
-    let constants: IVec<tir::Const, ConstId> = module
-        .constants
-        .into_iter()
-        .map(|c| match c {
-            hir::Const::Unit => tir::Const::Unit,
-            hir::Const::Int(i) => tir::Const::Int(i),
-            hir::Const::String(s) => tir::Const::String(s),
-        })
+    let function_types: IVec<Type, FunctionId> = module
+        .functions
+        .indexed_iter()
+        .map(|(id, f)| Type::Function(
+            id,
+            ivec![],
+            Box::new(eval_type_expr(&f.return_ty)),
+        ))
         .collect();
 
     let functions: IVec<tir::Function, FunctionId> = module
         .functions
-        .into_iter()
-        .map(|f| solve_function(&constants, &f))
+        .iter()
+        .map(|f| solve_function(&module, &function_types, f))
         .collect::<TypeResult<_>>()?;
 
     Ok(tir::Module {
-        constants,
+        constants: module.constants,
         functions,
     })
 }
@@ -40,16 +56,24 @@ struct TyVar<'hir>(LocalId, Option<&'hir hir::Expression>);
 
 #[derive(Debug)]
 struct TyContext<'hir> {
-    constants: &'hir IVec<tir::Const, ConstId>,
+    module: &'hir hir::Module,
+    function_types: &'hir IVec<Type, FunctionId>,
     vars: IVec<Option<Type>, LocalId>,
+    return_ty: Type,
     _marker: std::marker::PhantomData<&'hir hir::Expression>,
 }
 
 impl<'hir> TyContext<'hir> {
-    fn new(constants: &'hir IVec<tir::Const, ConstId>, function: &'hir hir::Function) -> Self {
+    fn new(
+        module: &'hir hir::Module,
+        function_types: &'hir IVec<Type, FunctionId>,
+        function: &'hir hir::Function,
+    ) -> Self {
         Self {
-            constants,
+            module,
+            function_types,
             vars: function.locals.iter().map(|_| None).collect(),
+            return_ty: eval_type_expr(&function.return_ty),
             _marker: std::marker::PhantomData,
         }
     }
@@ -66,11 +90,7 @@ impl<'hir> TyContext<'hir> {
     }
 
     fn constant(&self, id: ConstId) -> Type {
-        self.constants[id].ty().clone()
-    }
-
-    fn function(&self, id: FunctionId) -> Type {
-        Type::Function(id, ivec![], Box::new(Type::Unit))
+        const_ty(&self.module.constants[id])
     }
 
     fn intrinsic(&self, id: IntrinsicId) -> Type {
@@ -113,17 +133,15 @@ enum TypeEquation<'hir> {
 }
 
 fn solve_function(
-    constants: &IVec<tir::Const, ConstId>,
+    module: &hir::Module,
+    function_types: &IVec<Type, FunctionId>,
     function: &hir::Function,
 ) -> TypeResult<tir::Function> {
-    let mut ctx = TyContext::new(constants, function);
+    let mut ctx = TyContext::new(module, function_types, function);
     let mut equations = Vec::new();
 
     let return_type = form_equations(&mut equations, &mut ctx, &function.body)?;
-    equations.push(TypeEquation::Equal(
-        return_type,
-        MaybeType::Type(Type::Unit),
-    ));
+    enforce_type(&mut equations, return_type, ctx.return_ty.clone());
 
     solve_equations(&mut ctx, equations)?;
 
@@ -134,6 +152,14 @@ fn solve_function(
     })
 }
 
+fn enforce_type<'hir>(
+    equations: &mut Vec<TypeEquation<'hir>>,
+    ty: MaybeType<'hir>,
+    expected: Type,
+) {
+    equations.push(TypeEquation::Equal(ty.clone(), MaybeType::Type(expected)));
+}
+
 fn form_equations<'hir>(
     equations: &mut Vec<TypeEquation<'hir>>,
     ctx: &mut TyContext<'hir>,
@@ -142,7 +168,7 @@ fn form_equations<'hir>(
     match expr {
         hir::Expression::Const(c) => Ok(MaybeType::Type(ctx.constant(*c))),
         hir::Expression::Local(l) => Ok(ctx.local(*l)),
-        hir::Expression::Function(f) => Ok(MaybeType::Type(ctx.function(*f))),
+        hir::Expression::Function(f) => Ok(MaybeType::Type(ctx.function_types[*f].clone())),
         hir::Expression::Intrinsic(f) => Ok(MaybeType::Type(ctx.intrinsic(*f))),
         hir::Expression::Block(exprs, expr) => {
             for expr in exprs {
@@ -181,6 +207,11 @@ fn form_equations<'hir>(
             let ty = form_equations(equations, ctx, expr)?;
             equations.push(TypeEquation::Equal(ctx.local(*var), ty.clone()));
             Ok(ty)
+        }
+        hir::Expression::Return(expr) => {
+            let ty = form_equations(equations, ctx, expr)?;
+            enforce_type(equations, ty, ctx.return_ty.clone());
+            Ok(MaybeType::Type(Type::Unit))
         }
     }
 }
@@ -263,7 +294,7 @@ fn assign_types(ctx: &TyContext, expression: &hir::Expression) -> tir::Typed {
             expr: Box::new(tir::Expression::Local(*l)),
         },
         hir::Expression::Function(f) => tir::Typed {
-            ty: ctx.function(*f),
+            ty: ctx.function_types[*f].clone(),
             expr: Box::new(tir::Expression::Function(*f)),
         },
         hir::Expression::Intrinsic(f) => tir::Typed {
@@ -307,6 +338,15 @@ fn assign_types(ctx: &TyContext, expression: &hir::Expression) -> tir::Typed {
                 expr: Box::new(tir::Expression::Assign {
                     var: *var,
                     expr: typed_expr,
+                }),
+            }
+        }
+        hir::Expression::Return(expr) => {
+            let typed_expr = assign_types(ctx, expr);
+            tir::Typed {
+                ty: typed_expr.ty.clone(),
+                expr: Box::new(tir::Expression::Return {
+                    value: typed_expr,
                 }),
             }
         }

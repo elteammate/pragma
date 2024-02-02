@@ -1,6 +1,6 @@
 use crate::c::{
-    CType, Expr, ExternalId, FunctionId, LocalId, StructFieldId, StructId, TempId,
-    TypedExternalId, TypedFunctionId, TypedLocalId,
+    CType, Expr, ExternalId, FunctionId, LocalId, StructFieldId, StructId, TempId, TypedExternalId,
+    TypedFunctionId, TypedLocalId,
 };
 use crate::ivec::{IIndex, IVec};
 use crate::tir::Type;
@@ -9,16 +9,18 @@ use std::collections::HashMap;
 
 pub fn transpile_to_c(module: tir::Module) -> c::Module {
     let mut cbuilder = CBuilder::new(&module);
-    let main = cbuilder.get_method(
-        Type::Function(
-            tir::FunctionId::from_index(0),
-            ivec![],
-            Box::new(Type::Unit),
-        ),
-        "()",
-    );
 
-    assert_eq!(main.ty(), CType::Function(ivec![], Box::new(CType::Void)));
+    let (main_id, main) = module
+        .functions
+        .indexed_iter()
+        .find(|(_, f)| f.ident == "main")
+        .expect("Main function not found");
+
+    assert_eq!(main.body.ty, Type::Unit);
+
+    let main_ty = Type::Function(main_id, ivec![], Box::new(Type::Unit));
+
+    let main = cbuilder.get_method(main_ty, "()");
 
     c::Module {
         includes: cbuilder.includes,
@@ -121,7 +123,7 @@ impl<'tir> CBuilder<'tir> {
 
     fn get_external(&mut self, name: &str) -> ExternalId {
         if let Some((id, _fn)) = self.externals.indexed_iter().find(|(_, e)| e.name == name) {
-            return id
+            return id;
         }
 
         let (args_ty, ret_ty) = match name {
@@ -376,9 +378,7 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
         if let Some(id) = self.registered_locals[local] {
             id
         } else {
-            let ty = self
-                .module
-                .ty2c(self.function.locals[local].clone());
+            let ty = self.module.ty2c(self.function.locals[local].clone());
             let id = self.locals.push(ty);
             self.registered_locals[local] = Some(id);
             id
@@ -399,6 +399,7 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
     fn translate_expression(&mut self, expr: &tir::Typed) -> StatementAndResult {
         let mut result = Vec::new();
         let ty = &expr.ty;
+        let zero_sized = ty.is_zero_sized();
 
         let last = match &*expr.expr {
             tir::Expression::Block(statements, last) => {
@@ -427,23 +428,17 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
 
                 Some(expr)
             }
+            tir::Expression::Local(_) if zero_sized => None,
             tir::Expression::Local(local) => {
-                if ty.is_zero_sized() {
-                    None
-                } else {
-                    let local = self.get_local(*local);
-                    Some(Expr::new_local(TypedLocalId::new(
-                        local,
-                        self.module.ty2c(ty.clone()),
-                    )))
-                }
+                let local = self.get_local(*local);
+                Some(Expr::new_local(TypedLocalId::new(
+                    local,
+                    self.module.ty2c(ty.clone()),
+                )))
             }
+            tir::Expression::Function(_) | tir::Expression::Intrinsic(_) if zero_sized => None,
             tir::Expression::Function(_) | tir::Expression::Intrinsic(_) => {
-                if ty.is_zero_sized() {
-                    None
-                } else {
-                    todo!("Expressions on functions are not implemented yet")
-                }
+                todo!("Expressions on functions are not implemented yet")
             }
             tir::Expression::Method {
                 object: object @ tir::Typed { ty, .. },
@@ -471,22 +466,34 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
 
                 Some(Expr::new_call(Expr::new_global(id), args.into()))
             }
+            tir::Expression::Assign { var: _, expr } if zero_sized => {
+                let translated = self.translate_expression(expr);
+                result.append(&mut self.ignore_result(translated));
+                None
+            },
             tir::Expression::Assign {
                 var: local,
                 expr: value,
             } => {
-                if ty.is_zero_sized() {
-                    return (Vec::new(), None);
-                } else {
-                    let local = self.get_local(*local);
-                    let (mut stmts, value) = self.translate_expression(value);
-                    result.append(&mut stmts);
-                    result.push(c::Statement::Expression(Expr::new_assign(
-                        TypedLocalId::new(local, self.module.ty2c(ty.clone())),
-                        value.expect("It must contain a value"),
-                    )));
-                    None
-                }
+                let local = self.get_local(*local);
+                let (mut stmts, value) = self.translate_expression(value);
+                result.append(&mut stmts);
+                result.push(c::Statement::Expression(Expr::new_assign(
+                    TypedLocalId::new(local, self.module.ty2c(ty.clone())),
+                    value.expect("It must contain a value"),
+                )));
+                None
+            }
+            tir::Expression::Return { value } if zero_sized => {
+                let translated = self.translate_expression(value);
+                result.append(&mut self.ignore_result(translated));
+                None
+            }
+            tir::Expression::Return { value } => {
+                let (mut stmts, value) = self.translate_expression(value);
+                result.append(&mut stmts);
+                result.push(c::Statement::Return(value.unwrap()));
+                None
             }
         };
 

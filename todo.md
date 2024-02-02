@@ -4,6 +4,11 @@
 - [x] Typechecking generated C
 - [ ] Function parameters
 - [ ] Return
+  - [x] Return type 
+  - [x] Non-void return
+  - [ ] Void return
+  - [ ] Primitive control flow analysis
+- [ ] Rewrite type inference
 - [ ] Expose native C types
 - [ ] Expose native C functions
 - [ ] If
@@ -32,7 +37,7 @@
 - [ ] Ephemeral types?
 - [ ] Caching
 - [ ] Incremental compilation
-- [ ] Wasm target
+- [ ] Wasm target?
 - [ ] LLVM target?
 - [ ] Native target?
 - [ ] C++ target?

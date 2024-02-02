@@ -17,6 +17,7 @@ pub struct Function {
     pub locals: ISource<LocalId>,
     pub ident: String,
     pub body: Expression,
+    pub return_ty: TypeExpr,
 }
 
 #[derive(Debug)]
@@ -55,6 +56,14 @@ pub enum Expression {
         var: LocalId,
         expr: Box<Expression>,
     },
+    Return(Box<Expression>),
+}
+
+#[derive(Debug)]
+pub enum TypeExpr {
+    Unit,
+    Int,
+    String,
 }
 
 // TODO: outdated, to be removed/replaced

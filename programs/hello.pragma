@@ -8,8 +8,20 @@ fn main() {
         f();
         "something"
     });
+    println(get_str());
+    println(get_str2());
 }
 
 fn f() {
     print("test");
+}
+
+fn get_str(): String {
+    return "a returned string";
+    ""
+}
+
+fn get_str2(): String {
+    s := "a returned string 2";
+    s
 }

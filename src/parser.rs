@@ -5,12 +5,15 @@ type ParsingResult<T> = Result<T, ParsingError>;
 
 macro_rules! eat {
     ($lex:expr, $pattern:pat) => {
-        eat!($lex, $pattern => ())
+        eat!($lex, $pattern, span => Ast((), span))
     };
 
-    ($lex:expr, $($pattern:pat => $result:expr),+) => {
+    ($lex:expr, $($pattern:pat, $span:ident => $result:expr),+) => {
         match $lex.next() {
-            $(Some((Ok($pattern), span)) => Ok(Ast($result, span.into())),)+
+            $(Some((Ok($pattern), span)) => {
+                let $span: crate::span::Span = span.into();
+                Ok($result)
+            },)+
             #[allow(unreachable_patterns)]
             Some((Ok(..), span)) => Err(ParsingError::UnexpectedToken(
                 format!("Unexpected token, expected {:?}", [$(stringify!($pattern)),+]),
@@ -26,7 +29,7 @@ macro_rules! eat {
 }
 
 macro_rules! maybe_eat {
-    ($lex:expr, $($pattern:pat, $span:ident => $result:expr),+) => {
+    ($lex:expr, $($pattern:pat, $span:ident => $result:expr),+ $(,)?) => {
         match $lex.peek() {
             $(
                 #[allow(unused_variables)]
@@ -57,7 +60,7 @@ macro_rules! peek {
             Some((Ok(..), _)) => Ok(false),
             Some((Err(..), span)) => Err(ParsingError::UnknownToken(
                 format!("Unknown token, expected {:?}", stringify!($pattern)),
-                span.clone().into()
+                span.clone().into(),
             )),
             None => Err(ParsingError::UnexpectedEof),
         }
@@ -68,19 +71,35 @@ pub fn parse_program(lex: &mut Lex) -> ParsingResult<Module> {
     let mut items = Vec::new();
 
     while lex.peek().is_some() {
-        items.push(parse_item(lex)?);
+        if peek!(lex, Token::Fn)? {
+            items.push(parse_function(lex)?);
+        } else {
+            let span = eat!(lex, _)?.1;
+            return Err(ParsingError::UnexpectedToken(
+                "Expected function definition".to_string(),
+                span,
+            ));
+        }
     }
 
     return Ok(Module { items });
 }
 
-fn parse_item(lex: &mut Lex) -> ParsingResult<Ast<Function>> {
+fn parse_function(lex: &mut Lex) -> ParsingResult<Ast<Function>> {
     let start = eat!(lex, Token::Fn)?.1;
-    let ident = eat!(lex, Token::Ident(s) => s)?.0.to_string();
+    let ident = eat!(lex, Token::Ident(s), span => Ast(s.to_string(), span))?;
     eat!(lex, Token::LParen)?;
     eat!(lex, Token::RParen)?;
+
+    let return_type = if peek!(lex, Token::Colon)? {
+        eat!(lex, Token::Colon)?;
+        Some(parse_type(lex)?)
+    } else {
+        None
+    };
+
     let body @ Ast(_, end) = parse_block(lex)?;
-    Ok(Ast(Function { ident, body }, start.merge(end)))
+    Ok(Ast(Function { ident, return_ty: return_type, body }, start.merge(end)))
 }
 
 fn parse_block(lex: &mut Lex) -> ParsingResult<Ast<Expression>> {
@@ -106,7 +125,10 @@ fn parse_block(lex: &mut Lex) -> ParsingResult<Ast<Expression>> {
     }
 
     let end = eat!(lex, Token::RBrace)?.1;
-    Ok(Ast(Expression::Block(expressions, last_expr.map(Box::new)), start.merge(end)))
+    Ok(Ast(
+        Expression::Block(expressions, last_expr.map(Box::new)),
+        start.merge(end),
+    ))
 }
 
 fn parse_expression(lex: &mut Lex) -> ParsingResult<Ast<Expression>> {
@@ -114,17 +136,22 @@ fn parse_expression(lex: &mut Lex) -> ParsingResult<Ast<Expression>> {
     if let Some(Ast(..)) = maybe_eat!(lex, Token::Colon, span => Ast((), span))? {
         let ident = match expr {
             Expression::Ident(s) => Ast(s, start),
-            _ => return Err(ParsingError::IncorrectPattern(
-                "Expected identifier".to_string(),
-                expr,
-            )),
+            _ => {
+                return Err(ParsingError::IncorrectPattern(
+                    "Expected identifier".to_string(),
+                    expr,
+                ))
+            }
         };
         eat!(lex, Token::Eq)?;
         let expr @ Ast(_, end) = parse_expression(lex)?;
-        return Ok(Ast(Expression::Definition {
-            ident,
-            expr: Box::new(expr),
-        }, start.merge(end)));
+        return Ok(Ast(
+            Expression::Definition {
+                ident,
+                expr: Box::new(expr),
+            },
+            start.merge(end),
+        ));
     }
 
     let mut expr_stack: Vec<(Ast<Expression>, Option<(Ast<BinaryOp>, Precedence)>)> =
@@ -148,14 +175,17 @@ fn parse_expression(lex: &mut Lex) -> ParsingResult<Ast<Expression>> {
             let (prev_lhs, prev_op) = expr_stack.pop().unwrap();
             let start = prev_lhs.1;
             let end = prev_rhs.1;
-            expr_stack.push((Ast(
-                Expression::Binary {
-                    op: op_data.unwrap().0,
-                    lhs: Box::new(prev_lhs),
-                    rhs: Box::new(prev_rhs),
-                },
-                start.merge(end),
-            ), prev_op));
+            expr_stack.push((
+                Ast(
+                    Expression::Binary {
+                        op: op_data.unwrap().0,
+                        lhs: Box::new(prev_lhs),
+                        rhs: Box::new(prev_rhs),
+                    },
+                    start.merge(end),
+                ),
+                prev_op,
+            ));
         }
 
         expr_stack.push((rhs, Some((op, prec))));
@@ -167,17 +197,30 @@ fn parse_expression(lex: &mut Lex) -> ParsingResult<Ast<Expression>> {
         let start = prev_lhs.1;
         let end = prev_rhs.1;
         expr_stack.push((
-            Ast(Expression::Binary {
-                op: op_data.unwrap().0,
-                lhs: Box::new(prev_lhs),
-                rhs: Box::new(prev_rhs),
-            }, start.merge(end)),
+            Ast(
+                Expression::Binary {
+                    op: op_data.unwrap().0,
+                    lhs: Box::new(prev_lhs),
+                    rhs: Box::new(prev_rhs),
+                },
+                start.merge(end),
+            ),
             prev_op,
         ));
     }
 
     assert!(matches!(expr_stack[..], [(_, None)]));
     Ok(expr_stack.pop().unwrap().0)
+}
+
+fn parse_type(lex: &mut Lex) -> ParsingResult<Ast<TypeExpr>> {
+    eat!(lex,
+        Token::Ident(s), span => Ast(TypeExpr::Ident(s.to_string()), span),
+        Token::LParen, start => {
+            let end = eat!(lex, Token::RParen)?.1;
+            Ast(TypeExpr::Unit, start.merge(end))
+        }
+    )
 }
 
 fn parse_primary(lex: &mut Lex) -> ParsingResult<Ast<Expression>> {
@@ -205,7 +248,12 @@ fn parse_primary(lex: &mut Lex) -> ParsingResult<Ast<Expression>> {
             let Ast(expr, _) = parse_expression(lex)?;
             let end = eat!(lex, Token::RParen)?.1;
             Ast(expr, start.merge(end))
-        }
+        },
+        Token::Return, start => {
+            let expr = parse_expression(lex)?;
+            let end = expr.1;
+            Ast(Expression::Return(Box::new(expr)), start.merge(end))
+        },
     )? {
         e
     } else if peek!(lex, Token::LBrace)? {
@@ -226,10 +274,13 @@ fn parse_primary(lex: &mut Lex) -> ParsingResult<Ast<Expression>> {
             args.push(parse_expression(lex)?);
         }
         let end = eat!(lex, Token::RParen)?.1;
-        return Ok(Ast(Expression::Call {
-            callee: Box::new(expr),
-            args,
-        }, start.merge(end)));
+        return Ok(Ast(
+            Expression::Call {
+                callee: Box::new(expr),
+                args,
+            },
+            start.merge(end),
+        ));
     }
 
     Ok(expr)

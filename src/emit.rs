@@ -310,6 +310,9 @@ fn emit_statement<'c>(
             write!(builder, "return ")?;
             emit_expression(builder, names, &expr.expr, Precedence::Highest, false)?;
         },
+        Statement::ReturnVoid => {
+            write!(builder, "return")?;
+        },
     }
     write!(builder, ";")
 }

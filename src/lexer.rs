@@ -2,7 +2,7 @@ use std::iter::Peekable;
 use logos::SpannedIter;
 
 #[derive(logos::Logos, Debug, PartialEq)]
-#[logos(skip r"\s+")]
+#[logos(skip r"\s+|//[^\n]*\n")]
 pub enum Token<'s> {
     #[token(";")]
     Semi,
@@ -12,6 +12,8 @@ pub enum Token<'s> {
     Eq,
     #[token("fn")]
     Fn,
+    #[token("return")]
+    Return,
     #[token("{")]
     LBrace,
     #[token("}")]

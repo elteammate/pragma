@@ -6,6 +6,7 @@ use std::collections::HashMap;
 
 pub enum HirError {
     UnknownName(String),
+    UnknownTypeName(String),
     ExpectedIdentifier(ast::Expression),
 }
 
@@ -41,6 +42,20 @@ impl GlobalResolver {
 
     fn find_intrinsic(&self, name: &str) -> Option<hir::IntrinsicId> {
         self.intrinsic_ids.get(name).copied()
+    }
+}
+
+fn ast_to_hir_type_expr(
+    _resolver: &mut GlobalResolver,
+    expr: ast::TypeExpr,
+) -> HirResult<hir::TypeExpr> {
+    match expr {
+        ast::TypeExpr::Unit => Ok(hir::TypeExpr::Unit),
+        ast::TypeExpr::Ident(ident) => match &ident[..] {
+            "Int" => Ok(hir::TypeExpr::Int),
+            "String" => Ok(hir::TypeExpr::String),
+            _ => Err(HirError::UnknownName(ident.to_string())),
+        }
     }
 }
 
@@ -114,21 +129,29 @@ pub fn ast_to_hir(intrinsics: Vec<String>, module: ast::Module) -> HirResult<hir
 
     globals.function_ids = ast_functions
         .indexed_iter()
-        .map(|(id, f)| (f.ident.clone(), id))
+        .map(|(id, f)| (f.ident.0.clone(), id))
         .collect();
 
     let mut functions: IVec<hir::Function, hir::FunctionId> = ivec![];
 
-    for ast::Function { body, ident } in ast_functions {
+    for ast::Function { body, ident, return_ty: return_type } in ast_functions {
         let mut resolver = Resolver::new(globals);
+
         let body = resolver.with_scope(
             |resolver|
                 ast_to_hir_expression(resolver, body.0)
         )?;
 
+        let return_type = match return_type {
+            None => hir::TypeExpr::Unit,
+            Some(return_type) =>
+                ast_to_hir_type_expr(&mut resolver.globals, return_type.0)?,
+        };
+
         let function = hir::Function {
             locals: resolver.locals,
-            ident,
+            ident: ident.0,
+            return_ty: return_type,
             body,
         };
 
@@ -232,6 +255,10 @@ fn ast_to_hir_expression(
                 var: id,
                 expr: Box::new(expr),
             })
+        }
+        ast::Expression::Return(expr) => {
+            let expr = ast_to_hir_expression(resolver, expr.0)?;
+            Ok(hir::Expression::Return(Box::new(expr)))
         }
     }
 }

@@ -1,5 +1,5 @@
 use crate::c::ParamId;
-pub use crate::hir::{ConstId, FunctionId, IntrinsicId, LocalId};
+pub use crate::hir::{ConstId, FunctionId, IntrinsicId, LocalId, Const};
 use crate::ivec::IVec;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -59,21 +59,7 @@ pub enum Expression {
         var: LocalId,
         expr: Typed,
     },
-}
-
-#[derive(Debug)]
-pub enum Const {
-    Unit,
-    Int(i64),
-    String(String),
-}
-
-impl Const {
-    pub fn ty(&self) -> Type {
-        match self {
-            Const::Unit => Type::Unit,
-            Const::Int(_) => Type::Int,
-            Const::String(_) => Type::String,
-        }
-    }
+    Return {
+        value: Typed,
+    },
 }

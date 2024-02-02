@@ -10,8 +10,9 @@ pub struct Module {
 
 #[derive(Debug)]
 pub struct Function {
-    pub(crate) ident: String,
-    pub(crate) body: Ast<Expression>,
+    pub ident: Ast<String>,
+    pub return_ty: Option<Ast<TypeExpr>>,
+    pub body: Ast<Expression>,
 }
 
 #[derive(Debug, Copy, Clone)]
@@ -48,6 +49,7 @@ pub enum UnaryOp {
 #[derive(Debug)]
 pub enum Expression {
     Block(Vec<Ast<Expression>>, Option<Box<Ast<Expression>>>),
+    Return(Box<Ast<Expression>>),
     Call {
         callee: Box<Ast<Expression>>,
         args: Vec<Ast<Expression>>,
@@ -67,6 +69,12 @@ pub enum Expression {
         ident: Ast<String>,
         expr: Box<Ast<Expression>>,
     },
+}
+
+#[derive(Debug)]
+pub enum TypeExpr {
+    Unit,
+    Ident(String),
 }
 
 #[derive(Debug)]

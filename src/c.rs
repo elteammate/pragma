@@ -100,6 +100,7 @@ impl CType {
 pub enum Statement {
     Expression(Expr),
     Return(Expr),
+    ReturnVoid,
 }
 
 #[derive(Debug)]
