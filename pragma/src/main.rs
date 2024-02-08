@@ -21,7 +21,7 @@ use crate::names::ast_to_hir;
 use crate::types::solve_types;
 
 fn main() {
-    let program = std::fs::read_to_string("programs/hello.pragma").unwrap();
+    let program = std::fs::read_to_string("./programs/hello.pragma").unwrap();
 
     let mut lex = Token::lexer(&program)
         .spanned()
@@ -87,14 +87,14 @@ fn main() {
     println!("Size: {} bytes\n", c.len());
     println!("Writing to output/out.c");
 
-    std::fs::write("output/out.c", c).unwrap();
+    std::fs::write("./output/out.c", c).unwrap();
 
     println!("\nCompiling output/out.c (gcc)");
 
     let output = std::process::Command::new("gcc")
-        .arg("output/out.c")
+        .arg("./output/out.c")
         .arg("-o")
-        .arg("output/out")
+        .arg("./output/out")
         .output()
         .expect("Failed to execute gcc");
 
