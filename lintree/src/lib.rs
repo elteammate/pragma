@@ -2,7 +2,9 @@ use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 use std::sync::atomic::AtomicU64;
 
-pub trait RawNode {
+pub use lintree_derive::TreeNode;
+
+pub unsafe trait RawNode {
     fn size(&self) -> usize;
 }
 
@@ -16,10 +18,18 @@ pub struct Tree<T: RawNode> {
     _phantom: PhantomData<T>,
 }
 
+pub struct TreeAlloc<'a, T: RawNode> {
+    tree: &'a mut Tree<T>,
+}
+
 pub struct Tr<T> {
     offset: usize,
     discriminator: u32,
     _phantom: PhantomData<T>,
+}
+
+pub struct TrView {
+    offset: usize,
 }
 
 impl<T: RawNode> Clone for Tr<T> {
@@ -52,9 +62,8 @@ impl<T: RawNode> Tree<T> {
             std::alloc::handle_alloc_error(layout);
         }
 
-        let discriminator = unsafe {
-            TREE_ID_DISCRIMINATOR.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        };
+        let discriminator =
+            unsafe { TREE_ID_DISCRIMINATOR.fetch_add(1, std::sync::atomic::Ordering::Relaxed) };
 
         if discriminator > u32::MAX as u64 {
             panic!("Discriminator overflow");
@@ -110,7 +119,7 @@ impl<T: RawNode> Tree<T> {
         }
     }
 
-    pub fn alloc_with(&mut self, f: impl FnOnce() -> T) -> Tr<T> {
+    pub fn alloc_with(&mut self, f: impl FnOnce(TreeAlloc<T>) -> T) -> Tr<T> {
         let size = std::mem::size_of::<T>();
         if self.used + size > self.cap {
             let new_cap = self.cap * 2;
@@ -119,7 +128,8 @@ impl<T: RawNode> Tree<T> {
 
         let offset = self.used;
         self.used += size;
-        let node = f();
+        let alloc = TreeAlloc { tree: self };
+        let node = f(alloc);
         unsafe {
             std::ptr::write(self.buffer.add(offset) as *mut T, node);
         }
@@ -132,16 +142,25 @@ impl<T: RawNode> Tree<T> {
     }
 
     pub fn alloc(&mut self, node: T) -> Tr<T> {
-        self.alloc_with(move || node)
+        self.alloc_with(move |_| node)
+    }
+
+    fn ensure_discriminator(&self, node: Tr<T>) {
+        if node.discriminator != self.discriminator {
+            panic!(
+                "Accessing node from different tree: expected {}, got {}",
+                self.discriminator, node.discriminator
+            );
+        }
     }
 
     pub fn get(&self, node: Tr<T>) -> &T {
-        assert_eq!(node.discriminator, self.discriminator);
+        self.ensure_discriminator(node);
         unsafe { self.get_unchecked(node.offset) }
     }
 
     pub fn get_mut(&mut self, node: Tr<T>) -> &mut T {
-        assert_eq!(node.discriminator, self.discriminator);
+        self.ensure_discriminator(node);
         unsafe { self.get_mut_unchecked(node.offset) }
     }
 }
@@ -165,16 +184,13 @@ impl<T: RawNode> Drop for Tree<T> {
         if std::mem::needs_drop::<T>() {
             let mut offset: usize = 0;
 
-            loop {
+            while offset < self.used {
                 let node = unsafe { self.get_mut_unchecked(offset) };
                 let size = node.size();
                 unsafe {
                     std::ptr::drop_in_place(node as *mut T);
                 }
                 offset += size;
-                if offset >= self.used {
-                    break;
-                }
             }
         }
 
@@ -189,16 +205,16 @@ impl<T: RawNode> Drop for Tree<T> {
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
     use super::*;
+    use std::cell::RefCell;
 
     struct TestNode<'a> {
         drop_info: &'a RefCell<Vec<usize>>,
         a: u32,
-        id: usize
+        id: usize,
     }
 
-    impl<'a> RawNode for TestNode<'a> {
+    unsafe impl<'a> RawNode for TestNode<'a> {
         fn size(&self) -> usize {
             std::mem::size_of::<Self>()
         }
@@ -217,7 +233,7 @@ mod tests {
         let node = tree.alloc(TestNode {
             drop_info: &drop_info,
             a: 42,
-            id: 0
+            id: 0,
         });
 
         assert_eq!(tree[node].a, 42);
@@ -232,17 +248,17 @@ mod tests {
         let node1 = tree.alloc(TestNode {
             drop_info: &drop_info,
             a: 42,
-            id: 0
+            id: 0,
         });
         let node2 = tree.alloc(TestNode {
             drop_info: &drop_info,
             a: 43,
-            id: 1
+            id: 1,
         });
         let node3 = tree.alloc(TestNode {
             drop_info: &drop_info,
             a: 44,
-            id: 2
+            id: 2,
         });
 
         assert_eq!(tree[node1].a, 42);
@@ -259,17 +275,17 @@ mod tests {
         let node1 = tree.alloc(TestNode {
             drop_info: &drop_info,
             a: 42,
-            id: 0
+            id: 0,
         });
         let node2 = tree.alloc(TestNode {
             drop_info: &drop_info,
             a: 43,
-            id: 1
+            id: 1,
         });
         let node3 = tree.alloc(TestNode {
             drop_info: &drop_info,
             a: 44,
-            id: 2
+            id: 2,
         });
 
         assert_eq!(tree[node1].a, 42);
@@ -286,4 +302,20 @@ mod tests {
         drop(tree);
         assert!(drop_info.into_inner().into_iter().all(|x| x == 1));
     }
+
+    #[test]
+    #[should_panic]
+    fn access_different_tree() {
+        let drop_info = RefCell::new(vec![0]);
+        let mut tree1 = Tree::<TestNode>::new();
+        let tree2 = Tree::<TestNode>::new();
+        let node = tree1.alloc(TestNode {
+            drop_info: &drop_info,
+            a: 42,
+            id: 0,
+        });
+
+        let _ = tree2[node].a;
+    }
 }
+

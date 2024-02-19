@@ -23,6 +23,18 @@ checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 [[package]]
 name = "lintree"
 version = "0.1.0"
+dependencies = [
+ "lintree_derive",
+]
+
+[[package]]
+name = "lintree_derive"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "logos"
