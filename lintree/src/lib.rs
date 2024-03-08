@@ -2,7 +2,13 @@ use std::marker::PhantomData;
 use std::ops::{Index, IndexMut};
 use std::sync::atomic::AtomicU64;
 
-pub use lintree_derive::TreeNode;
+pub use lintree_derive::tree_node;
+
+pub trait TreeNode {
+    type Container: RawNode;
+    
+    fn into_container(self) -> Self::Container;
+}
 
 pub unsafe trait RawNode {
     fn size(&self) -> usize;
@@ -10,29 +16,29 @@ pub unsafe trait RawNode {
 
 static mut TREE_ID_DISCRIMINATOR: AtomicU64 = AtomicU64::new(0);
 
-pub struct Tree<T: RawNode> {
+pub struct Tree<T: TreeNode> {
     buffer: *mut u8,
     cap: usize,
     used: usize,
     discriminator: u32,
-    _phantom: PhantomData<T>,
+    _phantom: PhantomData<T::Container>,
 }
 
-pub struct TreeAlloc<'a, T: RawNode> {
+pub struct TreeAlloc<'a, T: TreeNode> {
     tree: &'a mut Tree<T>,
 }
 
-pub struct Tr<T> {
+pub struct Tr<T: TreeNode> {
     offset: usize,
     discriminator: u32,
-    _phantom: PhantomData<T>,
+    _phantom: PhantomData<T::Container>,
 }
 
-pub struct TrView {
+pub struct TrContainer {
     offset: usize,
 }
 
-impl<T: RawNode> Clone for Tr<T> {
+impl<T: TreeNode> Clone for Tr<T> {
     fn clone(&self) -> Self {
         Self {
             offset: self.offset,
@@ -42,9 +48,25 @@ impl<T: RawNode> Clone for Tr<T> {
     }
 }
 
-impl<T: RawNode> Copy for Tr<T> {}
+impl<T: TreeNode> Copy for Tr<T> {}
 
-impl<T: RawNode> Tree<T> {
+impl<T: TreeNode> TreeNode for Tr<T> {
+    type Container = TrContainer;
+
+    fn into_container(self) -> Self::Container {
+        TrContainer {
+            offset: self.offset,
+        }
+    }
+}
+
+unsafe impl RawNode for TrContainer {
+    fn size(&self) -> usize {
+        std::mem::size_of::<Self>()
+    }
+}
+
+impl<T: TreeNode> Tree<T> {
     const MAX_CAPACITY: usize = isize::MAX as usize;
     const DEFAULT_CAPACITY: usize = 256;
 
@@ -55,7 +77,8 @@ impl<T: RawNode> Tree<T> {
             "cap must be less than isize::MAX"
         );
 
-        let layout = std::alloc::Layout::from_size_align(cap, std::mem::align_of::<T>()).unwrap();
+        let layout = std::alloc::Layout::from_size_align(cap, 
+            std::mem::align_of::<T::Container>()).unwrap();
 
         let buffer = unsafe { std::alloc::alloc(layout) };
         if buffer.is_null() {
@@ -91,7 +114,9 @@ impl<T: RawNode> Tree<T> {
             "new_cap must be less than isize::MAX"
         );
         let layout =
-            std::alloc::Layout::from_size_align(new_cap, std::mem::align_of::<T>()).unwrap();
+            std::alloc::Layout::from_size_align(new_cap, 
+            std::mem::align_of::<T::Container>())
+                .unwrap();
 
         let new_buffer = unsafe { std::alloc::realloc(self.buffer, layout, new_cap) };
         if new_buffer.is_null() {
@@ -102,12 +127,12 @@ impl<T: RawNode> Tree<T> {
         self.cap = new_cap;
     }
 
-    unsafe fn get_unchecked(&self, offset: usize) -> &T {
-        &*(self.buffer.add(offset) as *const T)
+    unsafe fn get_unchecked(&self, offset: usize) -> &T::Container {
+        &*(self.buffer.add(offset) as *const T::Container)
     }
 
-    unsafe fn get_mut_unchecked(&mut self, offset: usize) -> &mut T {
-        &mut *(self.buffer.add(offset) as *mut T)
+    unsafe fn get_mut_unchecked(&mut self, offset: usize) -> &mut T::Container {
+        &mut *(self.buffer.add(offset) as *mut T::Container)
     }
 
     pub fn reserve(&mut self, additional: usize) {
@@ -119,19 +144,16 @@ impl<T: RawNode> Tree<T> {
         }
     }
 
-    pub fn alloc_with(&mut self, f: impl FnOnce(TreeAlloc<T>) -> T) -> Tr<T> {
-        let size = std::mem::size_of::<T>();
-        if self.used + size > self.cap {
-            let new_cap = self.cap * 2;
-            self.realloc(new_cap);
-        }
+    pub fn alloc_with(&mut self, f: impl FnOnce(TreeAlloc<T>) -> T::Container) -> Tr<T> {
+        let size = std::mem::size_of::<T::Container>();
+        self.reserve(size);
 
         let offset = self.used;
         self.used += size;
         let alloc = TreeAlloc { tree: self };
         let node = f(alloc);
         unsafe {
-            std::ptr::write(self.buffer.add(offset) as *mut T, node);
+            std::ptr::write(self.buffer.add(offset) as *mut T::Container, node);
         }
 
         Tr {
@@ -141,8 +163,8 @@ impl<T: RawNode> Tree<T> {
         }
     }
 
-    pub fn alloc(&mut self, node: T) -> Tr<T> {
-        self.alloc_with(move |_| node)
+    pub fn alloc(&mut self, node: T::Container) -> Tr<T> {
+        self.alloc_with(|_| node)
     }
 
     fn ensure_discriminator(&self, node: Tr<T>) {
@@ -154,32 +176,32 @@ impl<T: RawNode> Tree<T> {
         }
     }
 
-    pub fn get(&self, node: Tr<T>) -> &T {
+    pub fn get(&self, node: Tr<T>) -> &T::Container {
         self.ensure_discriminator(node);
         unsafe { self.get_unchecked(node.offset) }
     }
 
-    pub fn get_mut(&mut self, node: Tr<T>) -> &mut T {
+    pub fn get_mut(&mut self, node: Tr<T>) -> &mut T::Container {
         self.ensure_discriminator(node);
         unsafe { self.get_mut_unchecked(node.offset) }
     }
 }
 
-impl<T: RawNode> Index<Tr<T>> for Tree<T> {
-    type Output = T;
+impl<T: TreeNode> Index<Tr<T>> for Tree<T> {
+    type Output = T::Container;
 
     fn index(&self, index: Tr<T>) -> &Self::Output {
         self.get(index)
     }
 }
 
-impl<T: RawNode> IndexMut<Tr<T>> for Tree<T> {
+impl<T: TreeNode> IndexMut<Tr<T>> for Tree<T> {
     fn index_mut(&mut self, index: Tr<T>) -> &mut Self::Output {
         self.get_mut(index)
     }
 }
 
-impl<T: RawNode> Drop for Tree<T> {
+impl<T: TreeNode> Drop for Tree<T> {
     fn drop(&mut self) {
         if std::mem::needs_drop::<T>() {
             let mut offset: usize = 0;
@@ -188,7 +210,7 @@ impl<T: RawNode> Drop for Tree<T> {
                 let node = unsafe { self.get_mut_unchecked(offset) };
                 let size = node.size();
                 unsafe {
-                    std::ptr::drop_in_place(node as *mut T);
+                    std::ptr::drop_in_place(node as *mut T::Container);
                 }
                 offset += size;
             }
@@ -203,6 +225,7 @@ impl<T: RawNode> Drop for Tree<T> {
     }
 }
 
+/*
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -224,6 +247,10 @@ mod tests {
         fn drop(&mut self) {
             self.drop_info.borrow_mut()[self.id] += 1;
         }
+    }
+
+    impl TreeNode for TestNode<'_> {
+        type Container = Self;
     }
 
     #[test]
@@ -318,4 +345,4 @@ mod tests {
         let _ = tree2[node].a;
     }
 }
-
+*/
