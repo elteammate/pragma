@@ -323,6 +323,10 @@ impl NodeStruct {
             }
         }
     }
+
+    fn emit_view(&self) -> TokenStream {
+        todo!()
+    }
 }
 
 #[derive(Debug)]
@@ -379,11 +383,18 @@ struct NodeEnum {
     generics: syn::Generics,
     variants: Vec<NodeVariant>,
     container_ident: syn::Ident,
+    view_ident: syn::Ident,
+    view_mut_ident: syn::Ident,
+    view_generics: syn::Generics,
 }
 
 impl NodeEnum {
     fn from_syn(input: syn::ItemEnum) -> syn::Result<Self> {
         let container_ident = format_ident!("{}Container", input.ident);
+        let view_ident = format_ident!("{}View", input.ident);
+        let view_mut_ident = format_ident!("{}ViewMut", input.ident);
+        let mut view_generics = input.generics.clone();
+        view_generics.params.insert(0, syn::parse2(quote!('__lintree_t)).unwrap());
         Ok(Self {
             attrs: input.attrs,
             vis: input.vis,
@@ -395,6 +406,9 @@ impl NodeEnum {
                 .map(NodeVariant::from_syn)
                 .collect::<syn::Result<_>>()?,
             container_ident,
+            view_ident,
+            view_mut_ident,
+            view_generics,
         })
     }
 
@@ -453,11 +467,19 @@ impl NodeEnum {
     }
 
     fn emit_tree_node_impl(&self) -> TokenStream {
-        let ident = &self.ident;
+        let Self {
+            ident,
+            view_ident,
+            view_mut_ident,
+            generics,
+            view_generics,
+            variants,
+            ..
+        } = self;
         let container_ident = format_ident!("{}Container", ident);
-        let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
+        let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
 
-        let arms = self.variants.iter().map(|variant| {
+        let arms = variants.iter().map(|variant| {
             let variant_ident = &variant.ident;
             let pattern = variant.fields.emit_pattern_arm();
             let constructor = variant
@@ -474,6 +496,10 @@ impl NodeEnum {
         quote! {
             impl #impl_generics lintree::TreeNode for #ident #ty_generics #where_clause {
                 type Container = #container_ident #ty_generics;
+                type View<'__lintree_t> = #view_ident #view_generics
+                    where Self: '__lintree_t, Self::Container: '__lintree_t;
+                type ViewMut<'__lintree_t> = #view_mut_ident #view_generics
+                    where Self: '__lintree_t, Self::Container: '__lintree_t;
 
                 fn into_container(self, _discriminator: lintree::TreeDiscriminator) -> Self::Container {
                     match self {
@@ -481,6 +507,57 @@ impl NodeEnum {
                     }
                 }
             }
+        }
+    }
+
+    fn emit_view(&self) -> TokenStream {
+        let Self {
+            ident,
+            vis,
+            view_ident,
+            view_mut_ident,
+            generics,
+            view_generics,
+            ..
+        } = self;
+        let base = quote!(#ident<#generics>);
+        let (impl_generics, ty_generics, where_generics) = view_generics.split_for_impl();
+
+        quote! {
+            #vis struct #view_ident #view_generics {
+                raw: lintree::RawTreeView<'__lintree_t, #base>,
+                data: &'__lintree_t <#base as lintree::TreeNode>::Container,
+            }
+
+            #vis struct #view_mut_ident #view_generics {
+                raw: lintree::RawTreeViewMut<'__lintree_t, #base>,
+                data: &'__lintree_t <#base as lintree::TreeNode>::Container,
+            }
+
+            impl #impl_generics lintree::NodeView<'__lintree_t> for #view_ident #ty_generics #where_generics {
+                type Node = #base;
+
+                fn from_tr(raw_tree: lintree::RawTreeView<'__lintree_t, Self::Node>, tr: lintree::Tr<Self::Node>) -> Self {
+                    let data = raw_tree.get(tr);
+                    Self {
+                        raw: raw_tree,
+                        data
+                    }
+                }
+            }
+
+            impl #impl_generics lintree::NodeViewMut<'__lintree_t> for #view_mut_ident #ty_generics #where_generics {
+                type Node = #base;
+
+                fn from_tr(raw_tree: lintree::RawTreeViewMut<'__lintree_t, Self::Node>, tr: lintree::Tr<Self::Node>) -> Self {
+                    let data = raw_tree.get_mut(tr);
+                    Self {
+                        raw: raw_tree,
+                        data
+                    }
+                }
+            }
+
         }
     }
 }
@@ -530,6 +607,13 @@ impl NodeItem {
             Self::Enum(node) => node.emit_tree_node_impl(),
         }
     }
+
+    fn emit_view(&self) -> TokenStream {
+        match self {
+            Self::Struct(node) => node.emit_view(),
+            Self::Enum(node) => node.emit_view(),
+        }
+    }
 }
 
 #[proc_macro_attribute]
@@ -548,12 +632,14 @@ pub fn tree_node(
     let container = repr.emit_container();
     let raw_node_impl = repr.emit_container_raw_node_impl();
     let tree_node_impl = repr.emit_tree_node_impl();
+    let view = repr.emit_view();
 
     let expanded = quote! {
         #base
         #container
         #raw_node_impl
         #tree_node_impl
+        #view
     };
 
     expanded.into()

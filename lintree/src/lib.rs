@@ -41,6 +41,7 @@ pub struct Tree<T: TreeNode> {
     _phantom: PhantomData<T::Container>,
 }
 
+#[derive(Clone)]
 pub struct RawTreeView<'t, T: TreeNode> {
     buffer: *mut u8,
     discriminator: TreeDiscriminator,
@@ -53,8 +54,8 @@ pub struct RawTreeViewMut<'t, T: TreeNode> {
     _phantom: PhantomData<&'t Tree<T>>,
 }
 
-pub struct TreeAlloc<'a, T: TreeNode> {
-    tree: &'a mut Tree<T>,
+pub struct TreeAlloc<'t, T: TreeNode> {
+    tree: &'t mut Tree<T>,
 }
 
 pub struct Tr<T: TreeNode> {
@@ -73,7 +74,7 @@ pub struct TrView<'t, T: TreeNode> {
 }
 
 pub struct TrViewMut<'t, T: TreeNode> {
-    raw: RawTreeView<'t, T>,
+    raw: RawTreeViewMut<'t, T>,
     data: &'t mut T::Container,
 }
 
@@ -105,10 +106,10 @@ impl<T: TreeNode> TreeNode for Tr<T> {
 impl<'t, T: TreeNode> NodeView<'t> for TrView<'t, T> {
     type Node = T;
 
-    fn from_tr(tree: RawTreeView<Self::Node>, tr: Tr<Self::Node>) -> Self {
-        let data = tree.get(tr);
+    fn from_tr(raw_tree: RawTreeView<'t, Self::Node>, tr: Tr<Self::Node>) -> Self {
+        let data = raw_tree.get(tr);
         Self {
-            tree,
+            raw: raw_tree,
             data
         }
     }
@@ -117,15 +118,14 @@ impl<'t, T: TreeNode> NodeView<'t> for TrView<'t, T> {
 impl<'t, T: TreeNode> NodeViewMut<'t> for TrViewMut<'t, T> {
     type Node = T;
 
-    fn from_tr(tree: &'t Tree<Self::Node>, tr: Tr<Self::Node>) -> Self {
-        let data = tree.get_mut(tr);
+    fn from_tr(raw_tree: RawTreeViewMut<'t, T>, tr: Tr<Self::Node>) -> Self {
+        let data = raw_tree.get_mut(tr);
         Self {
-            tree,
+            raw: raw_tree,
             data
         }
     }
 }
-
 
 
 unsafe impl RawNode for TrContainer {
@@ -323,11 +323,11 @@ impl<'t, T: TreeNode> RawTreeView<'t, T> {
         }
     }
     
-    unsafe fn get_unchecked(&self, offset: usize) -> &T::Container {
+    unsafe fn get_unchecked(&self, offset: usize) -> &'t T::Container {
         &*(self.buffer.add(offset) as *const T::Container)
     }
     
-    pub fn get(&self, node: Tr<T>) -> &T::Container {
+    pub fn get(&self, node: Tr<T>) -> &'t T::Container {
         self.ensure_discriminator(node);
         unsafe { self.get_unchecked(node.offset) }
     }
@@ -351,11 +351,11 @@ impl<'t, T: TreeNode> RawTreeViewMut<'t, T> {
         } 
     }
     
-    pub unsafe fn get_unchecked(&self, offset: usize) -> &mut T::Container {
+    pub unsafe fn get_unchecked(&self, offset: usize) -> &'t mut T::Container {
         &mut *(self.buffer.add(offset) as *mut T::Container)
     }
     
-    pub fn get_mut(&self, node: Tr<T>) -> &mut T::Container {
+    pub fn get_mut(&self, node: Tr<T>) -> &'t mut T::Container {
         self.ensure_discriminator(node);
         unsafe { self.get_unchecked(node.offset) }
     }
