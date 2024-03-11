@@ -1,152 +1,535 @@
-use quote::{format_ident, quote};
-use syn::{fold::Fold, spanned::Spanned, Attribute, Field};
+use proc_macro2::TokenStream;
+use quote::{format_ident, quote, ToTokens};
 
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum FieldKind {
     Default,
     Composed,
 }
 
+#[derive(Debug)]
 struct NodeField {
+    attrs: Vec<syn::Attribute>,
+    vis: syn::Visibility,
     ty: syn::Type,
+    ident: Option<syn::Ident>,
     kind: FieldKind,
-    attrs: Vec<Attribute>,
+    guaranteed_ident: syn::Ident,
 }
 
-enum NodeVariant {
-    Tuple(Vec<NodeField>),
-    Struct(Vec<(syn::Ident, NodeField)>),
-}
-
-enum NodeDesc {
-    Struct(NodeVariant),
-    Enum(Vec<(syn::Ident, NodeVariant)>),
-}
-
-struct NodeRepr {
-    ident: syn::Ident,
-    desc: NodeDesc,
-}
-
-impl FieldKind {
-    fn from_attr(attr: &Attribute) -> Option<Self> {
-        if matches!(attr.style, syn::AttrStyle::Inner(_)) {
-            return None;
-        }
-
-        let syn::Meta::Path(path) = &attr.meta else {
-            return None;
-        };
-
-        if path.is_ident("compose") {
-            Some(Self::Composed)
-        } else {
-            None
-        }
-    }
-
-    // TODO: consider "get_from_field_and_erase"
-    fn from_field(field: &Field) -> Result<Self, syn::Error> {
-        let mut result = None;
-        for attr in &field.attrs {
-            if let Some(kind) = Self::from_attr(attr) {
-                if result.is_some() {
-                    return Err(syn::Error::new(
-                        attr.span(),
-                        "Conflicting field attribute",
+impl NodeField {
+    fn from_syn(input: syn::Field, index: usize) -> syn::Result<Self> {
+        let mut kind = None;
+        for attr in &input.attrs {
+            if attr.path().is_ident("compose") {
+                if kind.is_some() {
+                    return Err(syn::Error::new_spanned(
+                        attr,
+                        "Multiple field kind attributes are not allowed",
                     ));
                 }
-                result = Some(kind);
+                kind = Some(FieldKind::Composed);
             }
         }
-        Ok(result.unwrap_or(Self::Default))
+
+        let attrs = input
+            .attrs
+            .into_iter()
+            .filter(|attr| !attr.path().is_ident("compose"))
+            .collect();
+
+        let kind = kind.unwrap_or(FieldKind::Default);
+
+        Ok(Self {
+            attrs,
+            vis: input.vis,
+            ty: input.ty,
+            ident: input.ident,
+            kind,
+            guaranteed_ident: format_ident!("__lintree_f{}", index),
+        })
     }
-}
 
-struct FoldStruct;
+    fn emit_base(&self) -> TokenStream {
+        let Self {
+            attrs,
+            vis,
+            ty,
+            ident,
+            ..
+        } = self;
 
-impl Fold for FoldStruct {
-    fn fold_field(&mut self, field: Field) -> Field {
-        Field {
-            attrs: field
-                .attrs
-                .into_iter()
-                .filter(|a| FieldKind::from_attr(a).is_none())
-                .collect(),
-            ..field
+        match ident {
+            None => quote!(#(#attrs)* #vis #ty),
+            Some(ident) => quote!(#(#attrs)* #vis #ident: #ty),
+        }
+    }
+
+    fn emit_container(&self) -> TokenStream {
+        match self.kind {
+            FieldKind::Default => self.emit_base(),
+            FieldKind::Composed => {
+                let Self {
+                    attrs,
+                    vis,
+                    ty,
+                    ident,
+                    ..
+                } = self;
+
+                match ident {
+                    None => quote! {
+                        #(#attrs)* #vis <#ty as lintree::TreeNode>::Container
+                    },
+                    Some(ident) => quote! {
+                        #(#attrs)* #vis #ident: <#ty as lintree::TreeNode>::Container
+                    },
+                }
+            }
         }
     }
 }
 
-struct FoldContainer<'a> {
-    ident: &'a syn::Ident,
-    errors: Vec<syn::Error>,
-    rewriter_arms: Vec<syn::Arm>,
-    rewriter_fields: Vec<syn::FieldValue>,
+#[derive(Debug)]
+enum NodeFields {
+    Named(Vec<NodeField>),
+    Unnamed(Vec<NodeField>),
+    Unit,
 }
 
-impl<'a> Fold for FoldContainer<'a> {
-    fn fold_item_struct(&mut self, i: syn::ItemStruct) -> syn::ItemStruct {
-        let ident = self.ident.clone();
+impl NodeFields {
+    fn from_syn(input: syn::Fields) -> syn::Result<Self> {
+        Ok(match input {
+            syn::Fields::Unit => Self::Unit,
+            syn::Fields::Named(fields) => {
+                let fields = fields
+                    .named
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, f)| NodeField::from_syn(f, i))
+                    .collect::<syn::Result<_>>()?;
+                Self::Named(fields)
+            }
+            syn::Fields::Unnamed(fields) => {
+                let fields = fields
+                    .unnamed
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, f)| NodeField::from_syn(f, i))
+                    .collect::<syn::Result<_>>()?;
+                Self::Unnamed(fields)
+            }
+        })
+    }
 
-        let field_list = i.fields.iter().enumerate().map(|(i, f)| {
-            f.ident.unwrap_or(format_ident!("{i}")).clone()
+    fn emit_base(&self) -> TokenStream {
+        match self {
+            Self::Named(fields) => {
+                let fields = fields.iter().map(NodeField::emit_base);
+                quote!({ #(#fields),* })
+            }
+            Self::Unnamed(fields) => {
+                let fields = fields.iter().map(NodeField::emit_base);
+                quote!(( #(#fields),* ))
+            }
+            Self::Unit => quote!(),
+        }
+    }
+
+    fn emit_container(&self) -> TokenStream {
+        match self {
+            Self::Named(fields) => {
+                let fields = fields.iter().map(NodeField::emit_container);
+                quote!({ #(#fields),* })
+            }
+            Self::Unnamed(fields) => {
+                let fields = fields.iter().map(NodeField::emit_container);
+                quote!(( #(#fields),* ))
+            }
+            Self::Unit => quote!(),
+        }
+    }
+
+    fn emit_extra_size(&self) -> TokenStream {
+        let fields = match self {
+            Self::Named(fields) => fields,
+            Self::Unnamed(fields) => fields,
+            Self::Unit => return quote!(0),
+        };
+
+        let extra_size = fields
+            .iter()
+            .filter(|f| f.kind == FieldKind::Composed)
+            .map(|field| {
+                let ident = &field.guaranteed_ident;
+                quote! {
+                    lintree::RawNode::extra_size(#ident)
+                }
+            });
+
+        quote!(0usize #(+ #extra_size)*)
+    }
+
+    fn emit_pattern_arm(&self) -> TokenStream {
+        match self {
+            Self::Named(fields) => {
+                let names = fields.iter().map(|field| field.ident.as_ref().unwrap());
+                let aliases = fields.iter().map(|field| &field.guaranteed_ident);
+                quote!({ #(#names: #aliases),* })
+            }
+            Self::Unnamed(fields) => {
+                let fields = fields.iter().map(|field| {
+                    let ident = &field.guaranteed_ident;
+                    quote!(#ident)
+                });
+                quote!((#(#fields),*))
+            }
+            Self::Unit => quote!(),
+        }
+    }
+
+    fn emit_constructor(&self, args: impl IntoIterator<Item = TokenStream>) -> TokenStream {
+        let args = args.into_iter();
+        match self {
+            Self::Named(fields) => {
+                let fields = fields.iter().map(|field| {
+                    let ident = field.ident.as_ref().unwrap();
+                    quote!(#ident)
+                });
+                quote!({ #(#fields: #args),* })
+            }
+            Self::Unnamed(..) => {
+                quote!((#(#args),*))
+            }
+            Self::Unit => quote!(),
+        }
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &NodeField> {
+        match self {
+            Self::Named(fields) => fields.iter(),
+            Self::Unnamed(fields) => fields.iter(),
+            Self::Unit => [].iter(),
+        }
+    }
+
+    fn emit_into_container_fields<'a>(&'a self) -> impl Iterator<Item = TokenStream> + 'a {
+        self.iter().map(|field| {
+            if field.kind == FieldKind::Default {
+                field.guaranteed_ident.to_token_stream()
+            } else {
+                let ident = &field.guaranteed_ident;
+                quote!(lintree::TreeNode::into_container(#ident, _discriminator))
+            }
+        })
+    }
+}
+
+#[derive(Debug)]
+struct NodeStruct {
+    attrs: Vec<syn::Attribute>,
+    vis: syn::Visibility,
+    ident: syn::Ident,
+    generics: syn::Generics,
+    fields: NodeFields,
+    container_ident: syn::Ident,
+}
+
+impl NodeStruct {
+    fn from_syn(input: syn::ItemStruct) -> syn::Result<Self> {
+        let container_ident = format_ident!("{}Container", input.ident);
+        Ok(Self {
+            attrs: input.attrs,
+            vis: input.vis,
+            ident: input.ident,
+            generics: input.generics,
+            fields: NodeFields::from_syn(input.fields)?,
+            container_ident,
+        })
+    }
+
+    fn emit_base(&self) -> TokenStream {
+        let Self {
+            attrs,
+            vis,
+            ident,
+            generics,
+            fields,
+            ..
+        } = self;
+
+        let fields = fields.emit_base();
+
+        quote!(#(#attrs)* #vis struct #ident #generics #fields)
+    }
+
+    fn emit_container(&self) -> TokenStream {
+        let Self {
+            attrs,
+            vis,
+            generics,
+            fields,
+            container_ident,
+            ..
+        } = self;
+
+        let fields = fields.emit_container();
+
+        quote!(#(#attrs)* #vis struct #container_ident #generics #fields)
+    }
+
+    fn emit_container_raw_node_impl(&self) -> TokenStream {
+        let Self { ident, fields, .. } = self;
+
+        let extra_size = fields.emit_extra_size();
+        let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
+
+        quote! {
+            unsafe impl #impl_generics lintree::RawNode for #ident #ty_generics #where_clause {
+                fn extra_size(&self) -> usize {
+                    #extra_size
+                }
+            }
+        }
+    }
+
+    fn emit_tree_node_impl(&self) -> TokenStream {
+        let Self {
+            ident,
+            container_ident,
+            fields,
+            generics,
+            ..
+        } = self;
+
+        let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+        let fields_pat = fields.emit_pattern_arm();
+        let constructor = fields.emit_constructor(fields.iter().map(|f| match f.kind {
+            FieldKind::Default => f.guaranteed_ident.to_token_stream(),
+            FieldKind::Composed => {
+                let ident = &f.guaranteed_ident;
+                quote!(lintree::TreeNode::into_container(#ident))
+            }
+        }));
+
+        quote! {
+            impl #impl_generics lintree::TreeNode for #ident #ty_generics #where_clause {
+                type Container = #container_ident #ty_generics;
+
+                fn into_container(self, _discriminator: lintree::TreeDiscriminator) -> Self::Container {
+                    let Self #fields_pat = self;
+                    #container_ident #constructor
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug)]
+struct NodeVariant {
+    attrs: Vec<syn::Attribute>,
+    ident: syn::Ident,
+    fields: NodeFields,
+    discriminant: Option<syn::Expr>,
+}
+
+impl NodeVariant {
+    fn from_syn(input: syn::Variant) -> syn::Result<Self> {
+        Ok(Self {
+            attrs: input.attrs,
+            ident: input.ident,
+            fields: NodeFields::from_syn(input.fields)?,
+            discriminant: input.discriminant.map(|(_, expr)| expr),
+        })
+    }
+
+    fn emit_base(&self) -> TokenStream {
+        let Self {
+            attrs,
+            ident,
+            fields,
+            discriminant,
+            ..
+        } = self;
+
+        let fields = fields.emit_base();
+
+        quote!(#(#attrs)* #ident #fields #discriminant)
+    }
+
+    fn emit_container(&self) -> TokenStream {
+        let Self {
+            attrs,
+            ident,
+            fields,
+            discriminant,
+        } = self;
+
+        let fields = fields.emit_container();
+
+        quote!(#(#attrs)* #ident #fields #discriminant)
+    }
+}
+
+#[derive(Debug)]
+struct NodeEnum {
+    attrs: Vec<syn::Attribute>,
+    vis: syn::Visibility,
+    ident: syn::Ident,
+    generics: syn::Generics,
+    variants: Vec<NodeVariant>,
+    container_ident: syn::Ident,
+}
+
+impl NodeEnum {
+    fn from_syn(input: syn::ItemEnum) -> syn::Result<Self> {
+        let container_ident = format_ident!("{}Container", input.ident);
+        Ok(Self {
+            attrs: input.attrs,
+            vis: input.vis,
+            ident: input.ident,
+            generics: input.generics,
+            variants: input
+                .variants
+                .into_iter()
+                .map(NodeVariant::from_syn)
+                .collect::<syn::Result<_>>()?,
+            container_ident,
+        })
+    }
+
+    fn emit_base(&self) -> TokenStream {
+        let Self {
+            attrs,
+            vis,
+            ident,
+            generics,
+            variants,
+            ..
+        } = self;
+
+        let variants = variants.iter().map(NodeVariant::emit_base);
+
+        quote!(#(#attrs)* #vis enum #ident #generics { #(#variants),* })
+    }
+
+    fn emit_container(&self) -> TokenStream {
+        let Self {
+            attrs,
+            vis,
+            generics,
+            variants,
+            container_ident,
+            ..
+        } = self;
+
+        let variants = variants.iter().map(NodeVariant::emit_container);
+
+        quote!(#(#attrs)* #vis enum #container_ident #generics { #(#variants),* })
+    }
+
+    fn emit_container_raw_node_impl(&self) -> TokenStream {
+        let arms = self.variants.iter().map(|variant| {
+            let var_ident = &variant.ident;
+            let pattern = variant.fields.emit_pattern_arm();
+            let extra_size = variant.fields.emit_extra_size();
+            quote! {
+                Self::#var_ident #pattern => #extra_size
+            }
         });
 
-        let i = syn::ItemStruct {
-            ident: self.ident.clone(),
-            fields: self.fold_fields(i.fields),
-            ..i
-        };
+        let ident = &self.container_ident;
+        let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
 
-        let pattern = if i.tuple
-
-        i
-    }
-
-    fn fold_item_enum(&mut self, i: syn::ItemEnum) -> syn::ItemEnum {
-        syn::ItemEnum {
-            ident: self.ident.clone(),
-            variants: i.variants.into_iter().map(|v| self.fold_variant(v)).collect(),
-            ..i
+        quote! {
+            unsafe impl #impl_generics lintree::RawNode for #ident #ty_generics #where_clause {
+                fn extra_size(&self) -> usize {
+                    match self {
+                        #(#arms),*
+                    }
+                }
+            }
         }
     }
 
-    fn fold_field(&mut self, field: Field) -> Field {
-        let kind = match FieldKind::from_field(&field) {
-            Ok(kind) => kind,
-            Err(err) => { self.errors.push(err); return field; },
-        };
-        let field_ty = field.ty;
-        let field_ty = match kind {
-            FieldKind::Default => field_ty,
-            FieldKind::Composed => syn::parse2(quote!(
-                <#field_ty as lintree::TreeNode>::Container
-            )).unwrap(),
-        };
+    fn emit_tree_node_impl(&self) -> TokenStream {
+        let ident = &self.ident;
+        let container_ident = format_ident!("{}Container", ident);
+        let (impl_generics, ty_generics, where_clause) = self.generics.split_for_impl();
 
-        let field_ident = field.ident.as_ref().unwrap();
-        self.rewriter_fields.push(syn::parse2(match kind {
-            FieldKind::Default => quote!(#field_ident),
-            FieldKind::Composed => quote!(#field_ident: <_ as TreeNode>::into_container(field_ident)),
-        }).unwrap());
+        let arms = self.variants.iter().map(|variant| {
+            let variant_ident = &variant.ident;
+            let pattern = variant.fields.emit_pattern_arm();
+            let constructor = variant
+                .fields
+                .emit_constructor(variant.fields.emit_into_container_fields());
+            
+            quote! {
+                #ident::#variant_ident #pattern => {
+                    #container_ident::#variant_ident #constructor
+                }
+            }
+        });
 
-        Field {
-            attrs: field
-                .attrs
-                .into_iter()
-                .filter(|a| FieldKind::from_attr(a).is_none())
-                .collect(),
-            ty: field_ty,
-            ..field
+        quote! {
+            impl #impl_generics lintree::TreeNode for #ident #ty_generics #where_clause {
+                type Container = #container_ident #ty_generics;
+
+                fn into_container(self, _discriminator: lintree::TreeDiscriminator) -> Self::Container {
+                    match self {
+                        #(#arms),*
+                    }
+                }
+            }
         }
     }
 }
 
-fn join_compile_errors(errors: impl IntoIterator<Item=syn::Error>) -> syn::Error {
-    let mut errors = errors.into_iter();
-    let mut err =  errors.next().unwrap();
-    err.extend(errors);
-    err
+#[derive(Debug)]
+enum NodeItem {
+    Struct(NodeStruct),
+    Enum(NodeEnum),
+}
+
+impl NodeItem {
+    fn from_syn(input: syn::Item) -> syn::Result<Self> {
+        match input {
+            syn::Item::Struct(item) => Ok(NodeItem::Struct(NodeStruct::from_syn(item)?)),
+            syn::Item::Enum(item) => Ok(NodeItem::Enum(NodeEnum::from_syn(item)?)),
+            _ => Err(syn::Error::new_spanned(
+                input,
+                "#[tree_node] can only be applied to enums or structs",
+            )),
+        }
+    }
+
+    fn emit_base(&self) -> TokenStream {
+        match self {
+            Self::Struct(node) => node.emit_base(),
+            Self::Enum(node) => node.emit_base(),
+        }
+    }
+
+    fn emit_container(&self) -> TokenStream {
+        match self {
+            Self::Struct(node) => node.emit_container(),
+            Self::Enum(node) => node.emit_container(),
+        }
+    }
+
+    fn emit_container_raw_node_impl(&self) -> TokenStream {
+        match self {
+            Self::Struct(node) => node.emit_container_raw_node_impl(),
+            Self::Enum(node) => node.emit_container_raw_node_impl(),
+        }
+    }
+
+    fn emit_tree_node_impl(&self) -> TokenStream {
+        match self {
+            Self::Struct(node) => node.emit_tree_node_impl(),
+            Self::Enum(node) => node.emit_tree_node_impl(),
+        }
+    }
 }
 
 #[proc_macro_attribute]
@@ -156,55 +539,22 @@ pub fn tree_node(
 ) -> proc_macro::TokenStream {
     let input = syn::parse_macro_input!(input as syn::Item);
 
-    if !matches!(input, syn::Item::Enum(..) | syn::Item::Struct(..)) {
-        return syn::Error::new(
-            input.span(),
-            "Only enums and structs can be annotated with #[tree_node]",
-        )
-        .to_compile_error()
-        .into();
-    }
-
-    let struct_ident = match &input {
-        syn::Item::Enum(enum_) => enum_.ident.clone(),
-        syn::Item::Struct(struct_) => struct_.ident.clone(),
-        _ => unreachable!(),
+    let repr = match NodeItem::from_syn(input) {
+        Ok(repr) => repr,
+        Err(err) => return err.to_compile_error().into(),
     };
 
-    let container_ident = format_ident!("{}Container", struct_ident);
+    let base = repr.emit_base();
+    let container = repr.emit_container();
+    let raw_node_impl = repr.emit_container_raw_node_impl();
+    let tree_node_impl = repr.emit_tree_node_impl();
 
-    let mut fold_container = FoldContainer {
-        ident: &container_ident,
-        errors: Vec::new(),
-        rewriter_arms: Vec::new(),
-        rewriter_fields: Vec::new(),
-    };
-
-    let container = fold_container.fold_item(input.clone());
-    if !fold_container.errors.is_empty() {
-        return join_compile_errors(fold_container.errors).to_compile_error().into();
-    }
-    let struct_ = FoldStruct.fold_item(input);
-
-    let (impl_generics, ty_generics, where_clause) = match &struct_ {
-        syn::Item::Enum(enum_) => enum_.generics.split_for_impl(),
-        syn::Item::Struct(struct_) => struct_.generics.split_for_impl(),
-        _ => unreachable!(),
-    };
-
-    quote! {
-        #struct_
+    let expanded = quote! {
+        #base
         #container
+        #raw_node_impl
+        #tree_node_impl
+    };
 
-        impl #impl_generics lintree::TreeNode for #struct_ident #ty_generics #where_clause {
-            type Container = #container_ident<#ty_generics>;
-        }
-
-        unsafe impl #impl_generics lintree::RawNode for #container_ident #ty_generics #where_clause {
-            fn size(&self) -> usize {
-                std::mem::size_of::<Self>()
-            }
-        }
-    }
-    .into()
+    expanded.into()
 }

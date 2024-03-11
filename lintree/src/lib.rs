@@ -4,24 +4,53 @@ use std::sync::atomic::AtomicU64;
 
 pub use lintree_derive::tree_node;
 
-pub trait TreeNode {
+pub trait TreeNode: Sized {
     type Container: RawNode;
-    
-    fn into_container(self) -> Self::Container;
+    type View<'t>: NodeView<'t> where Self: 't, Self::Container: 't;
+    type ViewMut<'t>: NodeViewMut<'t> where Self: 't, Self::Container: 't;
+
+    fn into_container(self, tree: TreeDiscriminator) -> Self::Container;
 }
 
 pub unsafe trait RawNode {
-    fn size(&self) -> usize;
+    fn extra_size(&self) -> usize;
+}
+
+pub trait NodeView<'t> {
+    type Node: TreeNode;
+
+    fn from_tr(raw_view: RawTreeView<'t, Self::Node>, tr: Tr<Self::Node>) -> Self;
+}
+
+pub trait NodeViewMut<'t> {
+    type Node: TreeNode;
+
+    fn from_tr(raw_view: RawTreeViewMut<'t, Self::Node>, tr: Tr<Self::Node>) -> Self;
 }
 
 static mut TREE_ID_DISCRIMINATOR: AtomicU64 = AtomicU64::new(0);
+
+#[derive(Copy, Clone, Eq, PartialEq, Debug)]
+pub struct TreeDiscriminator(u32);
 
 pub struct Tree<T: TreeNode> {
     buffer: *mut u8,
     cap: usize,
     used: usize,
-    discriminator: u32,
+    discriminator: TreeDiscriminator,
     _phantom: PhantomData<T::Container>,
+}
+
+pub struct RawTreeView<'t, T: TreeNode> {
+    buffer: *mut u8,
+    discriminator: TreeDiscriminator,
+    _phantom: PhantomData<&'t Tree<T>>,
+}
+
+pub struct RawTreeViewMut<'t, T: TreeNode> {
+    buffer: *mut u8,
+    discriminator: TreeDiscriminator,
+    _phantom: PhantomData<&'t Tree<T>>,
 }
 
 pub struct TreeAlloc<'a, T: TreeNode> {
@@ -30,12 +59,22 @@ pub struct TreeAlloc<'a, T: TreeNode> {
 
 pub struct Tr<T: TreeNode> {
     offset: usize,
-    discriminator: u32,
+    discriminator: TreeDiscriminator,
     _phantom: PhantomData<T::Container>,
 }
 
 pub struct TrContainer {
     offset: usize,
+}
+
+pub struct TrView<'t, T: TreeNode> {
+    raw: RawTreeView<'t, T>,
+    data: &'t T::Container,
+}
+
+pub struct TrViewMut<'t, T: TreeNode> {
+    raw: RawTreeView<'t, T>,
+    data: &'t mut T::Container,
 }
 
 impl<T: TreeNode> Clone for Tr<T> {
@@ -52,17 +91,46 @@ impl<T: TreeNode> Copy for Tr<T> {}
 
 impl<T: TreeNode> TreeNode for Tr<T> {
     type Container = TrContainer;
+    type View<'t> = TrView<'t, T> where Self: 't, Self::Container: 't;
+    type ViewMut<'t> = TrViewMut<'t, T> where Self: 't, Self::Container: 't;
 
-    fn into_container(self) -> Self::Container {
+    fn into_container(self, discriminator: TreeDiscriminator) -> Self::Container {
+        assert_eq!(self.discriminator, discriminator, "Storing a node from a different tree");
         TrContainer {
             offset: self.offset,
         }
     }
 }
 
+impl<'t, T: TreeNode> NodeView<'t> for TrView<'t, T> {
+    type Node = T;
+
+    fn from_tr(tree: RawTreeView<Self::Node>, tr: Tr<Self::Node>) -> Self {
+        let data = tree.get(tr);
+        Self {
+            tree,
+            data
+        }
+    }
+}
+
+impl<'t, T: TreeNode> NodeViewMut<'t> for TrViewMut<'t, T> {
+    type Node = T;
+
+    fn from_tr(tree: &'t Tree<Self::Node>, tr: Tr<Self::Node>) -> Self {
+        let data = tree.get_mut(tr);
+        Self {
+            tree,
+            data
+        }
+    }
+}
+
+
+
 unsafe impl RawNode for TrContainer {
-    fn size(&self) -> usize {
-        std::mem::size_of::<Self>()
+    fn extra_size(&self) -> usize {
+        0
     }
 }
 
@@ -92,7 +160,7 @@ impl<T: TreeNode> Tree<T> {
             panic!("Discriminator overflow");
         }
 
-        let discriminator = discriminator as u32;
+        let discriminator = TreeDiscriminator(discriminator as u32);
 
         Self {
             buffer,
@@ -166,11 +234,15 @@ impl<T: TreeNode> Tree<T> {
     pub fn alloc(&mut self, node: T::Container) -> Tr<T> {
         self.alloc_with(|_| node)
     }
+    
+    pub fn push(&mut self, node: T) -> Tr<T> {
+        self.alloc(node.into_container(self.discriminator))
+    }
 
     fn ensure_discriminator(&self, node: Tr<T>) {
         if node.discriminator != self.discriminator {
             panic!(
-                "Accessing node from different tree: expected {}, got {}",
+                "Accessing node from different tree: expected {:?}, got {:?}",
                 self.discriminator, node.discriminator
             );
         }
@@ -184,6 +256,22 @@ impl<T: TreeNode> Tree<T> {
     pub fn get_mut(&mut self, node: Tr<T>) -> &mut T::Container {
         self.ensure_discriminator(node);
         unsafe { self.get_mut_unchecked(node.offset) }
+    }
+    
+    pub fn get_raw_view(&self) -> RawTreeView<T> {
+        RawTreeView {
+            buffer: self.buffer,
+            discriminator: self.discriminator,
+            _phantom: PhantomData,
+        }
+    }
+    
+    pub fn get_raw_view_mut(&mut self) -> RawTreeViewMut<T> {
+        RawTreeViewMut {
+            buffer: self.buffer,
+            discriminator: self.discriminator,
+            _phantom: PhantomData,
+        }
     }
 }
 
@@ -208,7 +296,7 @@ impl<T: TreeNode> Drop for Tree<T> {
 
             while offset < self.used {
                 let node = unsafe { self.get_mut_unchecked(offset) };
-                let size = node.size();
+                let size = std::mem::size_of::<T::Container>() + node.extra_size();
                 unsafe {
                     std::ptr::drop_in_place(node as *mut T::Container);
                 }
@@ -221,6 +309,62 @@ impl<T: TreeNode> Drop for Tree<T> {
 
         unsafe {
             std::alloc::dealloc(self.buffer, layout);
+        }
+    }
+}
+
+impl<'t, T: TreeNode> RawTreeView<'t, T> {
+    fn ensure_discriminator(&self, node: Tr<T>) {
+        if node.discriminator != self.discriminator {
+            panic!(
+                "Accessing node from different tree: expected {:?}, got {:?}",
+                self.discriminator, node.discriminator
+            );
+        }
+    }
+    
+    unsafe fn get_unchecked(&self, offset: usize) -> &T::Container {
+        &*(self.buffer.add(offset) as *const T::Container)
+    }
+    
+    pub fn get(&self, node: Tr<T>) -> &T::Container {
+        self.ensure_discriminator(node);
+        unsafe { self.get_unchecked(node.offset) }
+    }
+}
+
+impl<'t, T: TreeNode> RawTreeViewMut<'t, T> {
+    fn ensure_discriminator(&self, node: Tr<T>) {
+        if node.discriminator != self.discriminator {
+            panic!(
+                "Accessing node from different tree: expected {:?}, got {:?}",
+                self.discriminator, node.discriminator
+            );
+        }
+    }
+    
+    pub fn downcast(self) -> RawTreeView<'t, T> {
+        RawTreeView {
+            buffer: self.buffer,
+            discriminator: self.discriminator,
+            _phantom: PhantomData,
+        } 
+    }
+    
+    pub unsafe fn get_unchecked(&self, offset: usize) -> &mut T::Container {
+        &mut *(self.buffer.add(offset) as *mut T::Container)
+    }
+    
+    pub fn get_mut(&self, node: Tr<T>) -> &mut T::Container {
+        self.ensure_discriminator(node);
+        unsafe { self.get_unchecked(node.offset) }
+    }
+    
+    pub unsafe fn unsafe_clone(&self) -> Self {
+        Self {
+            buffer: self.buffer,
+            discriminator: self.discriminator,
+            _phantom: PhantomData,
         }
     }
 }
