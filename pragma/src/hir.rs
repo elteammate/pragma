@@ -8,8 +8,8 @@ create_index!(pub IntrinsicId);
 
 #[derive(Debug)]
 pub struct Module {
-    pub constants: IVec<Const, ConstId>,
-    pub functions: IVec<Function, FunctionId>,
+    pub constants: IVec<ConstId, Const>,
+    pub functions: IVec<FunctionId, Function>,
 }
 
 #[derive(Debug)]

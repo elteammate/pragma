@@ -82,9 +82,9 @@ impl Iterator for Namer {
 struct Builder<'c> {
     result: Vec<u8>,
     module: &'c Module,
-    struct_names: IVec<String, StructId>,
-    function_names: IVec<String, FunctionId>,
-    struct_fields: IVec<String, StructFieldId>,
+    struct_names: IVec<StructId, String>,
+    function_names: IVec<FunctionId, String>,
+    struct_fields: IVec<StructFieldId, String>,
     struct_field_namer: Namer,
 }
 
@@ -129,9 +129,9 @@ impl<'c> Builder<'c> {
 }
 
 struct LocalNames {
-    params: IVec<String, ParamId>,
-    locals: IVec<String, LocalId>,
-    temps: IVec<String, TempId>,
+    params: IVec<ParamId, String>,
+    locals: IVec<LocalId, String>,
+    temps: IVec<TempId, String>,
 }
 
 impl LocalNames {

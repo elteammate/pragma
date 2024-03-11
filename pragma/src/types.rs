@@ -29,7 +29,7 @@ fn eval_type_expr(expr: &hir::TypeExpr) -> Type {
 }
 
 pub fn solve_types(module: hir::Module) -> TypeResult<tir::Module> {
-    let function_types: IVec<Type, FunctionId> = module
+    let function_types: IVec<FunctionId, Type> = module
         .functions
         .indexed_iter()
         .map(|(id, f)| Type::Function(
@@ -39,7 +39,7 @@ pub fn solve_types(module: hir::Module) -> TypeResult<tir::Module> {
         ))
         .collect();
 
-    let functions: IVec<tir::Function, FunctionId> = module
+    let functions: IVec<FunctionId, tir::Function> = module
         .functions
         .iter()
         .map(|f| solve_function(&module, &function_types, f))
@@ -57,8 +57,8 @@ struct TyVar<'hir>(LocalId, Option<&'hir hir::Expression>);
 #[derive(Debug)]
 struct TyContext<'hir> {
     module: &'hir hir::Module,
-    function_types: &'hir IVec<Type, FunctionId>,
-    vars: IVec<Option<Type>, LocalId>,
+    function_types: &'hir IVec<FunctionId, Type>,
+    vars: IVec<LocalId, Option<Type>>,
     return_ty: Type,
     _marker: std::marker::PhantomData<&'hir hir::Expression>,
 }
@@ -66,7 +66,7 @@ struct TyContext<'hir> {
 impl<'hir> TyContext<'hir> {
     fn new(
         module: &'hir hir::Module,
-        function_types: &'hir IVec<Type, FunctionId>,
+        function_types: &'hir IVec<FunctionId, Type>,
         function: &'hir hir::Function,
     ) -> Self {
         Self {
@@ -134,7 +134,7 @@ enum TypeEquation<'hir> {
 
 fn solve_function(
     module: &hir::Module,
-    function_types: &IVec<Type, FunctionId>,
+    function_types: &IVec<FunctionId, Type>,
     function: &hir::Function,
 ) -> TypeResult<tir::Function> {
     let mut ctx = TyContext::new(module, function_types, function);
@@ -353,7 +353,7 @@ fn assign_types(ctx: &TyContext, expression: &hir::Expression) -> tir::Typed {
     }
 }
 
-fn get_method(ty: Type, method: &str) -> TypeResult<(IVec<Type, ParamId>, Type)> {
+fn get_method(ty: Type, method: &str) -> TypeResult<(IVec<ParamId, Type>, Type)> {
     match (&ty, method) {
         (Type::Function(_id, args, ret), "()") => Ok((args.clone(), *ret.clone())),
         (Type::Intrinsic(_id, args, ret), "()") => Ok((args.clone(), *ret.clone())),

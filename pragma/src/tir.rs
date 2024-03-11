@@ -7,8 +7,8 @@ pub enum Type {
     Unit,
     Int,
     String,
-    Function(FunctionId, IVec<Type, ParamId>, Box<Type>),
-    Intrinsic(IntrinsicId, IVec<Type, ParamId>, Box<Type>),
+    Function(FunctionId, IVec<ParamId, Type>, Box<Type>),
+    Intrinsic(IntrinsicId, IVec<ParamId, Type>, Box<Type>),
 }
 
 impl Type {
@@ -25,13 +25,13 @@ impl Type {
 
 #[derive(Debug)]
 pub struct Module {
-    pub constants: IVec<Const, ConstId>,
-    pub functions: IVec<Function, FunctionId>,
+    pub constants: IVec<ConstId, Const>,
+    pub functions: IVec<FunctionId, Function>,
 }
 
 #[derive(Debug)]
 pub struct Function {
-    pub locals: IVec<Type, LocalId>,
+    pub locals: IVec<LocalId, Type>,
     pub ident: String,
     pub body: Typed,
 }
@@ -52,7 +52,7 @@ pub enum Expression {
     Method {
         object: Typed,
         name: String,
-        // TODO: maybe reconsider the type: IVec<Typed, ParamId>
+        // TODO: maybe reconsider the type: IVec<ParamId, Typed>
         args: Vec<Typed>,
     },
     Assign {

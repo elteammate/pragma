@@ -9,7 +9,7 @@ pub trait IIndex {
 }
 
 #[derive(Clone, Eq, PartialEq, Hash)]
-pub struct IVec<T, I: IIndex>(Vec<T>, PhantomData<I>);
+pub struct IVec<I: IIndex, T>(Vec<T>, PhantomData<I>);
 
 pub struct ISource<I: IIndex>(usize, PhantomData<I>);
 
@@ -56,7 +56,7 @@ macro_rules! ivec {
     }
 }
 
-impl<T, I: IIndex> IVec<T, I> {
+impl<T, I: IIndex> IVec<I, T> {
     pub fn new() -> Self {
         Self(Vec::new(), PhantomData)
     }
@@ -79,7 +79,7 @@ impl<T, I: IIndex> IVec<T, I> {
         self.indexed_iter().for_each(|(index, value)| f(index, value));
     }
 
-    pub fn iter(&self) -> <&IVec<T, I> as IntoIterator>::IntoIter {
+    pub fn iter(&self) -> <&IVec<I, T> as IntoIterator>::IntoIter {
         self.into_iter()
     }
 
@@ -87,7 +87,7 @@ impl<T, I: IIndex> IVec<T, I> {
         self.0.iter().enumerate().map(|(index, value)| (I::from_index(index), value))
     }
 
-    pub fn iter_mut(&mut self) -> <&mut IVec<T, I> as IntoIterator>::IntoIter {
+    pub fn iter_mut(&mut self) -> <&mut IVec<I, T> as IntoIterator>::IntoIter {
         self.into_iter()
     }
 
@@ -96,7 +96,7 @@ impl<T, I: IIndex> IVec<T, I> {
     }
 }
 
-impl<T, I: IIndex> Index<I> for IVec<T, I> {
+impl<T, I: IIndex> Index<I> for IVec<I, T> {
     type Output = T;
 
     fn index(&self, index: I) -> &Self::Output {
@@ -104,13 +104,13 @@ impl<T, I: IIndex> Index<I> for IVec<T, I> {
     }
 }
 
-impl<T, I: IIndex> IndexMut<I> for IVec<T, I> {
+impl<T, I: IIndex> IndexMut<I> for IVec<I, T> {
     fn index_mut(&mut self, index: I) -> &mut Self::Output {
         &mut self.0[index.index()]
     }
 }
 
-impl<T, I: IIndex> IntoIterator for IVec<T, I> {
+impl<T, I: IIndex> IntoIterator for IVec<I, T> {
     type Item = T;
     type IntoIter = std::vec::IntoIter<T>;
 
@@ -119,7 +119,7 @@ impl<T, I: IIndex> IntoIterator for IVec<T, I> {
     }
 }
 
-impl<'a, T, I: IIndex> IntoIterator for &'a IVec<T, I> {
+impl<'a, T, I: IIndex> IntoIterator for &'a IVec<I, T> {
     type Item = &'a T;
     type IntoIter = std::slice::Iter<'a, T>;
 
@@ -128,7 +128,7 @@ impl<'a, T, I: IIndex> IntoIterator for &'a IVec<T, I> {
     }
 }
 
-impl<'a, T, I: IIndex> IntoIterator for &'a mut IVec<T, I> {
+impl<'a, T, I: IIndex> IntoIterator for &'a mut IVec<I, T> {
     type Item = &'a mut T;
     type IntoIter = std::slice::IterMut<'a, T>;
 
@@ -137,19 +137,19 @@ impl<'a, T, I: IIndex> IntoIterator for &'a mut IVec<T, I> {
     }
 }
 
-impl<T, I: IIndex> FromIterator<T> for IVec<T, I> {
+impl<T, I: IIndex> FromIterator<T> for IVec<I, T> {
     fn from_iter<U: IntoIterator<Item=T>>(iter: U) -> Self {
         Self(iter.into_iter().collect(), PhantomData)
     }
 }
 
-impl<T, I: IIndex> From<Vec<T>> for IVec<T, I> {
+impl<T, I: IIndex> From<Vec<T>> for IVec<I, T> {
     fn from(vec: Vec<T>) -> Self {
         Self(vec, PhantomData)
     }
 }
 
-impl<T: Debug, I: IIndex> Debug for IVec<T, I> {
+impl<T: Debug, I: IIndex> Debug for IVec<I, T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "IVec<{}>", I::string_name())?;
         self.0.fmt(f)

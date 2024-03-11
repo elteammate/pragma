@@ -15,13 +15,13 @@ type HirResult<T> = Result<T, HirError>;
 struct GlobalResolver {
     function_ids: HashMap<String, hir::FunctionId>,
     intrinsic_ids: HashMap<String, hir::IntrinsicId>,
-    constants: IVec<hir::Const, hir::ConstId>,
-    intrinsics: IVec<String, hir::IntrinsicId>,
+    constants: IVec<hir::ConstId, hir::Const>,
+    intrinsics: IVec<hir::IntrinsicId, String>,
 }
 
 impl GlobalResolver {
     fn new(intrinsics: Vec<String>) -> Self {
-        let intrinsics: IVec<String, hir::IntrinsicId> = intrinsics.into_iter().collect();
+        let intrinsics: IVec<hir::IntrinsicId, String> = intrinsics.into_iter().collect();
 
         let intrinsic_ids = intrinsics
             .indexed_iter()
@@ -124,7 +124,7 @@ impl Resolver {
 pub fn ast_to_hir(intrinsics: Vec<String>, module: ast::Module) -> HirResult<hir::Module> {
     let mut globals = GlobalResolver::new(intrinsics);
 
-    let ast_functions: IVec<ast::Function, hir::FunctionId> =
+    let ast_functions: IVec<hir::FunctionId, ast::Function> =
         IVec::from_iter(module.items.into_iter().map(|x| x.0));
 
     globals.function_ids = ast_functions
@@ -132,7 +132,7 @@ pub fn ast_to_hir(intrinsics: Vec<String>, module: ast::Module) -> HirResult<hir
         .map(|(id, f)| (f.ident.0.clone(), id))
         .collect();
 
-    let mut functions: IVec<hir::Function, hir::FunctionId> = ivec![];
+    let mut functions: IVec<hir::FunctionId, hir::Function> = ivec![];
 
     for ast::Function { body, ident, return_ty: return_type } in ast_functions {
         let mut resolver = Resolver::new(globals);

@@ -45,31 +45,31 @@ typed_id!(ParamId);
 
 #[derive(Debug)]
 pub struct Struct {
-    pub fields: IVec<CType, StructFieldId>,
+    pub fields: IVec<StructFieldId, CType>,
 }
 
 #[derive(Debug)]
 pub struct Module {
     pub includes: Vec<String>,
-    pub structs: IVec<Struct, StructId>,
-    pub functions: IVec<Function, FunctionId>,
-    pub externals: IVec<ExternalFunction, ExternalId>,
+    pub structs: IVec<StructId, Struct>,
+    pub functions: IVec<FunctionId, Function>,
+    pub externals: IVec<ExternalId, ExternalFunction>,
     pub main: Option<FunctionId>,
 }
 
 #[derive(Debug)]
 pub struct ExternalFunction {
     pub name: String,
-    pub parameters: IVec<CType, ParamId>,
+    pub parameters: IVec<ParamId, CType>,
     pub return_type: CType,
 }
 
 #[derive(Debug)]
 pub struct Function {
-    pub parameters: IVec<CType, ParamId>,
+    pub parameters: IVec<ParamId, CType>,
     pub body: Vec<Statement>,
-    pub locals: IVec<CType, LocalId>,
-    pub temps: IVec<CType, TempId>,
+    pub locals: IVec<LocalId, CType>,
+    pub temps: IVec<TempId, CType>,
     pub return_type: CType,
 }
 
@@ -80,7 +80,7 @@ pub enum CType {
     Void,
     Struct(StructId),
     Pointer(Box<CType>),
-    Function(IVec<CType, ParamId>, Box<CType>),
+    Function(IVec<ParamId, CType>, Box<CType>),
 }
 
 impl CType {
@@ -228,7 +228,7 @@ create_expressions! {
     Temp(id: TypedTempId as TempId)[Precedence::Lowest] : id.ty();
     Global(id: TypedFunctionId as FunctionId)[Precedence::Lowest] : id.ty();
     External(id: TypedExternalId as ExternalId)[Precedence::Lowest] : id.ty();
-    Call(f: Expr as Box<Expr>, args: IVec<Expr, ParamId>)[Precedence::SuffixUnary] : {
+    Call(f: Expr as Box<Expr>, args: IVec<ParamId, Expr>)[Precedence::SuffixUnary] : {
         match &f.ty {
             CType::Function(params, ret) => {
                 assert_eq!(params.len(), args.len());
@@ -289,5 +289,5 @@ create_expressions! {
     // Type is left blank because it's determined by the struct
     StructAccess(x: Expr as Box<Expr>, field: StructFieldId)[Precedence::SuffixUnary] : ;
     // Type checking is left for the caller
-    StructBuild(id: StructId, fields: IVec<Expr, StructFieldId>)[Precedence::Lowest] : CType::Struct(id);
+    StructBuild(id: StructId, fields: IVec<StructFieldId, Expr>)[Precedence::Lowest] : CType::Struct(id);
 }

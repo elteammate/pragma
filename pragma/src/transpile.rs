@@ -33,9 +33,9 @@ pub fn transpile_to_c(module: tir::Module) -> c::Module {
 
 struct CBuilder<'tir> {
     module: &'tir tir::Module,
-    structs: IVec<c::Struct, StructId>,
-    functions: IVec<c::Function, FunctionId>,
-    externals: IVec<c::ExternalFunction, ExternalId>,
+    structs: IVec<StructId, c::Struct>,
+    functions: IVec<FunctionId, c::Function>,
+    externals: IVec<ExternalId, c::ExternalFunction>,
     includes: Vec<String>,
     int_wrap: Option<StructId>,
     string_wrap: Option<StructId>,
@@ -56,7 +56,7 @@ impl<'tir> CBuilder<'tir> {
         }
     }
 
-    fn add_struct(&mut self, fields: IVec<CType, StructFieldId>) -> StructId {
+    fn add_struct(&mut self, fields: IVec<StructFieldId, CType>) -> StructId {
         self.structs.push(c::Struct { fields })
     }
 
@@ -318,9 +318,9 @@ impl<'tir> CBuilder<'tir> {
 struct CExpressionBuilder<'m, 'tir> {
     module: &'m mut CBuilder<'tir>,
     function: &'tir tir::Function,
-    locals: IVec<CType, LocalId>,
-    temps: IVec<CType, TempId>,
-    registered_locals: IVec<Option<LocalId>, tir::LocalId>,
+    locals: IVec<LocalId, CType>,
+    temps: IVec<TempId, CType>,
+    registered_locals: IVec<tir::LocalId, Option<LocalId>>,
 }
 
 type StatementAndResult = (Vec<c::Statement>, Option<Expr>);
