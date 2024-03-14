@@ -395,6 +395,7 @@ impl NodeEnum {
         let view_mut_ident = format_ident!("{}ViewMut", input.ident);
         let mut view_generics = input.generics.clone();
         view_generics.params.insert(0, syn::parse2(quote!('__lintree_t)).unwrap());
+        view_generics.params.insert(1, syn::parse2(quote!(__lintree_R: lintree::TreeNode)).unwrap());
         Ok(Self {
             attrs: input.attrs,
             vis: input.vis,
@@ -478,6 +479,7 @@ impl NodeEnum {
         } = self;
         let container_ident = format_ident!("{}Container", ident);
         let (impl_generics, ty_generics, where_clause) = generics.split_for_impl();
+        let (_, view_generics, _) = view_generics.split_for_impl();
 
         let arms = variants.iter().map(|variant| {
             let variant_ident = &variant.ident;
@@ -496,10 +498,10 @@ impl NodeEnum {
         quote! {
             impl #impl_generics lintree::TreeNode for #ident #ty_generics #where_clause {
                 type Container = #container_ident #ty_generics;
-                type View<'__lintree_t> = #view_ident #view_generics
-                    where Self: '__lintree_t, Self::Container: '__lintree_t;
-                type ViewMut<'__lintree_t> = #view_mut_ident #view_generics
-                    where Self: '__lintree_t, Self::Container: '__lintree_t;
+                type View<'__lintree_t, __lintree_R: lintree::TreeNode> = #view_ident #view_generics
+                    where Self: '__lintree_t, __lintree_R: '__lintree_t, Self::Container: '__lintree_t;
+                type ViewMut<'__lintree_t, __lintree_R: lintree::TreeNode> = #view_mut_ident #view_generics
+                    where Self: '__lintree_t, __lintree_R: '__lintree_t, Self::Container: '__lintree_t;
 
                 fn into_container(self, _discriminator: lintree::TreeDiscriminator) -> Self::Container {
                     match self {
@@ -520,24 +522,25 @@ impl NodeEnum {
             view_generics,
             ..
         } = self;
-        let base = quote!(#ident<#generics>);
+        let (_, base_generics, _) = generics.split_for_impl();
+        let base = quote!(#ident<#base_generics>);
         let (impl_generics, ty_generics, where_generics) = view_generics.split_for_impl();
 
         quote! {
             #vis struct #view_ident #view_generics {
-                raw: lintree::RawTreeView<'__lintree_t, #base>,
+                raw: lintree::RawTreeView<'__lintree_t, __lintree_R>,
                 data: &'__lintree_t <#base as lintree::TreeNode>::Container,
             }
 
             #vis struct #view_mut_ident #view_generics {
-                raw: lintree::RawTreeViewMut<'__lintree_t, #base>,
+                raw: lintree::RawTreeViewMut<'__lintree_t, __lintree_R>,
                 data: &'__lintree_t <#base as lintree::TreeNode>::Container,
             }
 
-            impl #impl_generics lintree::NodeView<'__lintree_t> for #view_ident #ty_generics #where_generics {
+            impl #impl_generics lintree::NodeView<'__lintree_t, __lintree_R> for #view_ident #ty_generics #where_generics {
                 type Node = #base;
 
-                fn from_tr(raw_tree: lintree::RawTreeView<'__lintree_t, Self::Node>, tr: lintree::Tr<Self::Node>) -> Self {
+                fn from_tr(raw_tree: lintree::RawTreeView<'__lintree_t, __lintree_R>, tr: lintree::Tr<Self::Node>) -> Self {
                     let data = raw_tree.get(tr);
                     Self {
                         raw: raw_tree,
@@ -546,10 +549,10 @@ impl NodeEnum {
                 }
             }
 
-            impl #impl_generics lintree::NodeViewMut<'__lintree_t> for #view_mut_ident #ty_generics #where_generics {
+            impl #impl_generics lintree::NodeViewMut<'__lintree_t, __lintree_R> for #view_mut_ident #ty_generics #where_generics {
                 type Node = #base;
 
-                fn from_tr(raw_tree: lintree::RawTreeViewMut<'__lintree_t, Self::Node>, tr: lintree::Tr<Self::Node>) -> Self {
+                fn from_tr(raw_tree: lintree::RawTreeViewMut<'__lintree_t, __lintree_R>, tr: lintree::Tr<Self::Node>) -> Self {
                     let data = raw_tree.get_mut(tr);
                     Self {
                         raw: raw_tree,
@@ -557,7 +560,6 @@ impl NodeEnum {
                     }
                 }
             }
-
         }
     }
 }

@@ -1,10 +1,18 @@
-use lintree::{Tree, Tr};
+use lintree::{Tr, Tree};
+use lintree_derive::tree_node;
 
-#[lintree::tree_node]
+#[tree_node]
 enum MyTree {
     Leaf(u64),
-    Branch(#[compose] Tr<MyTree>, Tr<MyTree>),
+    Branch(#[compose] Tr<MyTree>, #[compose] Tr<MyTree>),
+    Branch2 {
+        #[compose] x: Tr<MyTree>,
+        #[compose] y: Tr<MyTree>,
+    }
 }
+
+#[tree_node]
+struct Test(#[compose] Tr<MyTree>, u64);
 
 #[test]
 fn test() {
@@ -16,4 +24,6 @@ fn test() {
     let b1 = tree.push(MyTree::Branch(l1, l2));
     let b2 = tree.push(MyTree::Branch(l3, l4));
     let root = tree.push(MyTree::Branch(b1, b2));
+
+    tree.view(root);
 }

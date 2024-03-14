@@ -6,8 +6,10 @@ pub use lintree_derive::tree_node;
 
 pub trait TreeNode: Sized {
     type Container: RawNode;
-    type View<'t>: NodeView<'t> where Self: 't, Self::Container: 't;
-    type ViewMut<'t>: NodeViewMut<'t> where Self: 't, Self::Container: 't;
+    type View<'t, R: TreeNode>: NodeView<'t, R, Node=Self>
+        where Self: 't, R: 't, Self::Container: 't;
+    type ViewMut<'t, R: TreeNode>: NodeViewMut<'t, R, Node=Self>
+        where Self: 't, R: 't, Self::Container: 't;
 
     fn into_container(self, tree: TreeDiscriminator) -> Self::Container;
 }
@@ -16,16 +18,16 @@ pub unsafe trait RawNode {
     fn extra_size(&self) -> usize;
 }
 
-pub trait NodeView<'t> {
+pub trait NodeView<'t, R: TreeNode> {
     type Node: TreeNode;
 
-    fn from_tr(raw_view: RawTreeView<'t, Self::Node>, tr: Tr<Self::Node>) -> Self;
+    fn from_tr(raw_view: RawTreeView<'t, R>, tr: Tr<Self::Node>) -> Self;
 }
 
-pub trait NodeViewMut<'t> {
+pub trait NodeViewMut<'t, R: TreeNode> {
     type Node: TreeNode;
 
-    fn from_tr(raw_view: RawTreeViewMut<'t, Self::Node>, tr: Tr<Self::Node>) -> Self;
+    fn from_tr(raw_view: RawTreeViewMut<'t, R>, tr: Tr<Self::Node>) -> Self;
 }
 
 static mut TREE_ID_DISCRIMINATOR: AtomicU64 = AtomicU64::new(0);
@@ -68,14 +70,14 @@ pub struct TrContainer {
     offset: usize,
 }
 
-pub struct TrView<'t, T: TreeNode> {
-    raw: RawTreeView<'t, T>,
-    data: &'t T::Container,
+pub struct TrView<'t, R: TreeNode, T: TreeNode> {
+    raw: RawTreeView<'t, R>,
+    data: &'t <Tr<T> as TreeNode>::Container,
 }
 
-pub struct TrViewMut<'t, T: TreeNode> {
-    raw: RawTreeViewMut<'t, T>,
-    data: &'t mut T::Container,
+pub struct TrViewMut<'t, R: TreeNode, T: TreeNode> {
+    raw: RawTreeViewMut<'t, R>,
+    data: &'t mut <Tr<T> as TreeNode>::Container,
 }
 
 impl<T: TreeNode> Clone for Tr<T> {
@@ -92,8 +94,10 @@ impl<T: TreeNode> Copy for Tr<T> {}
 
 impl<T: TreeNode> TreeNode for Tr<T> {
     type Container = TrContainer;
-    type View<'t> = TrView<'t, T> where Self: 't, Self::Container: 't;
-    type ViewMut<'t> = TrViewMut<'t, T> where Self: 't, Self::Container: 't;
+    type View<'t, R: TreeNode> = TrView<'t, R, T>
+        where Self: 't, R: 't, Self::Container: 't;
+    type ViewMut<'t, R: TreeNode> = TrViewMut<'t, R, T>
+        where Self: 't, R: 't, Self::Container: 't;
 
     fn into_container(self, discriminator: TreeDiscriminator) -> Self::Container {
         assert_eq!(self.discriminator, discriminator, "Storing a node from a different tree");
@@ -103,10 +107,10 @@ impl<T: TreeNode> TreeNode for Tr<T> {
     }
 }
 
-impl<'t, T: TreeNode> NodeView<'t> for TrView<'t, T> {
-    type Node = T;
+impl<'t, R: TreeNode, T: TreeNode> NodeView<'t, R> for TrView<'t, R, T> {
+    type Node = Tr<T>;
 
-    fn from_tr(raw_tree: RawTreeView<'t, Self::Node>, tr: Tr<Self::Node>) -> Self {
+    fn from_tr(raw_tree: RawTreeView<'t, R>, tr: Tr<Self::Node>) -> Self {
         let data = raw_tree.get(tr);
         Self {
             raw: raw_tree,
@@ -115,10 +119,10 @@ impl<'t, T: TreeNode> NodeView<'t> for TrView<'t, T> {
     }
 }
 
-impl<'t, T: TreeNode> NodeViewMut<'t> for TrViewMut<'t, T> {
-    type Node = T;
+impl<'t, R: TreeNode, T: TreeNode> NodeViewMut<'t, R> for TrViewMut<'t, R, T> {
+    type Node = Tr<T>;
 
-    fn from_tr(raw_tree: RawTreeViewMut<'t, T>, tr: Tr<Self::Node>) -> Self {
+    fn from_tr(raw_tree: RawTreeViewMut<'t, R>, tr: Tr<Self::Node>) -> Self {
         let data = raw_tree.get_mut(tr);
         Self {
             raw: raw_tree,
@@ -258,6 +262,10 @@ impl<T: TreeNode> Tree<T> {
         unsafe { self.get_mut_unchecked(node.offset) }
     }
     
+    pub fn view<'t>(&'t self, node: Tr<T>) -> T::View<'t, T> {
+        T::View::from_tr(self.get_raw_view(), node)
+    }
+    
     pub fn get_raw_view(&self) -> RawTreeView<T> {
         RawTreeView {
             buffer: self.buffer,
@@ -313,8 +321,8 @@ impl<T: TreeNode> Drop for Tree<T> {
     }
 }
 
-impl<'t, T: TreeNode> RawTreeView<'t, T> {
-    fn ensure_discriminator(&self, node: Tr<T>) {
+impl<'t, R: TreeNode> RawTreeView<'t, R> {
+    fn ensure_discriminator<T: TreeNode>(&self, node: Tr<T>) {
         if node.discriminator != self.discriminator {
             panic!(
                 "Accessing node from different tree: expected {:?}, got {:?}",
@@ -323,18 +331,18 @@ impl<'t, T: TreeNode> RawTreeView<'t, T> {
         }
     }
     
-    unsafe fn get_unchecked(&self, offset: usize) -> &'t T::Container {
+    unsafe fn get_unchecked<T: TreeNode>(&self, offset: usize) -> &'t T::Container {
         &*(self.buffer.add(offset) as *const T::Container)
     }
     
-    pub fn get(&self, node: Tr<T>) -> &'t T::Container {
+    pub fn get<T: TreeNode>(&self, node: Tr<T>) -> &'t T::Container {
         self.ensure_discriminator(node);
-        unsafe { self.get_unchecked(node.offset) }
+        unsafe { self.get_unchecked::<T>(node.offset) }
     }
 }
 
-impl<'t, T: TreeNode> RawTreeViewMut<'t, T> {
-    fn ensure_discriminator(&self, node: Tr<T>) {
+impl<'t, R: TreeNode> RawTreeViewMut<'t, R> {
+    fn ensure_discriminator<T: TreeNode>(&self, node: Tr<T>) {
         if node.discriminator != self.discriminator {
             panic!(
                 "Accessing node from different tree: expected {:?}, got {:?}",
@@ -343,7 +351,7 @@ impl<'t, T: TreeNode> RawTreeViewMut<'t, T> {
         }
     }
     
-    pub fn downcast(self) -> RawTreeView<'t, T> {
+    pub fn downcast(self) -> RawTreeView<'t, R> {
         RawTreeView {
             buffer: self.buffer,
             discriminator: self.discriminator,
@@ -351,13 +359,13 @@ impl<'t, T: TreeNode> RawTreeViewMut<'t, T> {
         } 
     }
     
-    pub unsafe fn get_unchecked(&self, offset: usize) -> &'t mut T::Container {
+    pub unsafe fn get_unchecked<T: TreeNode>(&self, offset: usize) -> &'t mut T::Container {
         &mut *(self.buffer.add(offset) as *mut T::Container)
     }
     
-    pub fn get_mut(&self, node: Tr<T>) -> &'t mut T::Container {
+    pub fn get_mut<T: TreeNode>(&self, node: Tr<T>) -> &'t mut T::Container {
         self.ensure_discriminator(node);
-        unsafe { self.get_unchecked(node.offset) }
+        unsafe { self.get_unchecked::<T>(node.offset) }
     }
     
     pub unsafe fn unsafe_clone(&self) -> Self {
