@@ -131,6 +131,15 @@ impl<'t, R: TreeNode, T: TreeNode> NodeViewMut<'t, R> for TrViewMut<'t, R, T> {
     }
 }
 
+impl<T: TreeNode> Tr<T> {
+    pub unsafe fn from_container(container: TrContainer, discriminator: TreeDiscriminator) -> Self {
+        Self {
+            offset: container.offset,
+            discriminator,
+            _phantom: PhantomData,
+        }
+    }
+}
 
 unsafe impl RawNode for TrContainer {
     fn extra_size(&self) -> usize {
@@ -264,6 +273,10 @@ impl<T: TreeNode> Tree<T> {
     
     pub fn view<'t>(&'t self, node: Tr<T>) -> T::View<'t, T> {
         T::View::from_tr(self.get_raw_view(), node)
+    }
+
+    pub fn view_mut<'t>(&'t mut self, node: Tr<T>) -> T::ViewMut<'t, T> {
+        T::ViewMut::from_tr(self.get_raw_view_mut(), node)
     }
     
     pub fn get_raw_view(&self) -> RawTreeView<T> {

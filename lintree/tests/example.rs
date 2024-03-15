@@ -14,6 +14,12 @@ enum MyTree {
 #[tree_node]
 struct Test(#[compose] Tr<MyTree>, u64);
 
+#[tree_node]
+struct Test2 {
+    #[compose] x: Tr<MyTree>,
+    y: u64
+}
+
 #[test]
 fn test() {
     let mut tree = Tree::<MyTree>::with_capacity(16);
@@ -25,5 +31,12 @@ fn test() {
     let b2 = tree.push(MyTree::Branch(l3, l4));
     let root = tree.push(MyTree::Branch(b1, b2));
 
-    tree.view(root);
+    let root = tree.view(root);
+    match root.data {
+        MyTreeContainer::Branch(l, r) => {
+            tree.view(l);
+        }
+        _ => unreachable!()
+    }
+    
 }
