@@ -1,8 +1,0 @@
-[package]
-name = "lintree"
-version = "0.1.0"
-edition = "2021"
-
-[dependencies]
-lintree_derive = { path = "lintree-derive/" }
-
