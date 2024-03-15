@@ -3,7 +3,7 @@ use crate::c::{CType, Expression, ExternalId, Function, FunctionId, LocalId, Mod
 use crate::ivec;
 use crate::ivec::{IIndex, IVec};
 
-const ALPHABET: &'static [u8] =
+const ALPHABET: &[u8] =
     b"abcdefghijklmnopqrstuvwxyz\
       ABCDEFGHIJKLMNOPQRSTUVWXYZ\
       0123456789_";

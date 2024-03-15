@@ -233,7 +233,7 @@ fn solve_equations<'hir>(
                     args,
                 } => match ty {
                     MaybeType::Type(concrete) => {
-                        let method = get_method(concrete.clone(), &method)?;
+                        let method = get_method(concrete.clone(), method)?;
                         let (arg_tys, ret_ty) = method;
                         for (arg, arg_ty) in args.iter().zip(arg_tys) {
                             new_equations
@@ -273,7 +273,7 @@ fn solve_equations<'hir>(
         equations = new_equations;
     }
 
-    if equations.len() > 0 {
+    if !equations.is_empty() {
         return Err(TypeError::UnknownType);
     }
 
@@ -284,7 +284,7 @@ fn assign_types(ctx: &TyContext, expression: &hir::Expression) -> tir::Typed {
     match expression {
         hir::Expression::Const(c) => tir::Typed {
             ty: ctx.constant(*c),
-            expr: Box::new(tir::Expression::Constant((*c).into())),
+            expr: Box::new(tir::Expression::Constant(*c)),
         },
         hir::Expression::Local(l) => tir::Typed {
             ty: match ctx.local(*l) {
@@ -315,7 +315,7 @@ fn assign_types(ctx: &TyContext, expression: &hir::Expression) -> tir::Typed {
         hir::Expression::Method { object, args, name } => {
             let typed_object = assign_types(ctx, object);
             let typed_args = args
-                .into_iter()
+                .iter()
                 .map(|arg| assign_types(ctx, arg))
                 .collect::<Vec<_>>();
 

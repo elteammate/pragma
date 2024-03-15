@@ -31,7 +31,7 @@ macro_rules! create_index {
                 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
                 pub struct $name(usize);
 
-                impl crate::ivec::IIndex for $name {
+                impl $crate::ivec::IIndex for $name {
                     fn index(&self) -> usize {
                         self.0
                     }
@@ -52,7 +52,7 @@ macro_rules! create_index {
 #[macro_export]
 macro_rules! ivec {
     [$($tt:tt)*] => {
-        crate::ivec::IVec::from(vec![$($tt)*])
+        $crate::ivec::IVec::from(vec![$($tt)*])
     }
 }
 
@@ -93,6 +93,12 @@ impl<T, I: IIndex> IVec<I, T> {
 
     pub fn indexed_iter_mut(&mut self) -> impl Iterator<Item=(I, &mut T)> {
         self.0.iter_mut().enumerate().map(|(index, value)| (I::from_index(index), value))
+    }
+}
+
+impl<T, I: IIndex> Default for IVec<I, T> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -169,6 +175,12 @@ impl<I: IIndex> ISource<I> {
 
     pub fn iter(&self) -> ISourceIter<I> {
         self.into_iter()
+    }
+}
+
+impl<I: IIndex> Default for ISource<I> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

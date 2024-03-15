@@ -36,8 +36,7 @@ pub enum Token<'s> {
     Number(&'s str),
     #[regex(r#""(\\"|\\n|\\t|\\r|[^"\n])*""#, |lex| {
         let s = lex.slice();
-        let s = &s[1..s.len()-1];
-        s
+        &s[1..s.len()-1]
     })]
     String(&'s str),
     #[regex(r"[a-zA-Z_][a-zA-Z0-9_]*")]

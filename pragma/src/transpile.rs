@@ -105,7 +105,7 @@ impl<'tir> CBuilder<'tir> {
             .generated_methods
             .get(&(object.clone(), name.to_string()))
         {
-            return id.clone();
+            id.clone()
         } else {
             let method = self.generate_method(object.clone(), name);
             let id = self.function(method);

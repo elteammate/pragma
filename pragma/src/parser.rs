@@ -82,7 +82,7 @@ pub fn parse_program(lex: &mut Lex) -> ParsingResult<Module> {
         }
     }
 
-    return Ok(Module { items });
+    Ok(Module { items })
 }
 
 fn parse_function(lex: &mut Lex) -> ParsingResult<Ast<Function>> {
@@ -154,8 +154,7 @@ fn parse_expression(lex: &mut Lex) -> ParsingResult<Ast<Expression>> {
         ));
     }
 
-    let mut expr_stack: Vec<(Ast<Expression>, Option<(Ast<BinaryOp>, Precedence)>)> =
-        vec![(Ast(expr, start), None)];
+    let mut expr_stack = vec![(Ast(expr, start), None)];
 
     while let Some(op) = maybe_eat!(
         lex,
@@ -266,7 +265,7 @@ fn parse_primary(lex: &mut Lex) -> ParsingResult<Ast<Expression>> {
         ));
     };
 
-    while peek!(lex, Token::LParen)? {
+    if peek!(lex, Token::LParen)? {
         let start = expr.1;
         let mut args = Vec::new();
         eat!(lex, Token::LParen)?;
