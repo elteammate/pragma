@@ -94,6 +94,10 @@ impl<T, I: IIndex> IVec<I, T> {
     pub fn indexed_iter_mut(&mut self) -> impl Iterator<Item=(I, &mut T)> {
         self.0.iter_mut().enumerate().map(|(index, value)| (I::from_index(index), value))
     }
+    
+    pub fn indices(&self) -> ISource<I> {
+        ISource(self.0.len(), PhantomData)
+    }
 }
 
 impl<T, I: IIndex> Default for IVec<I, T> {
@@ -175,6 +179,10 @@ impl<I: IIndex> ISource<I> {
 
     pub fn iter(&self) -> ISourceIter<I> {
         self.into_iter()
+    }
+    
+    pub fn len(&self) -> usize {
+        self.0
     }
 }
 

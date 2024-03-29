@@ -63,6 +63,7 @@ struct Resolver {
     locals: ISource<hir::LocalId>,
     local_scopes: Vec<HashMap<String, hir::LocalId>>,
     globals: GlobalResolver,
+    ids: ISource<hir::ExprId>,
 }
 
 impl Resolver {
@@ -71,6 +72,7 @@ impl Resolver {
             locals: ISource::new(),
             local_scopes: Vec::new(),
             globals,
+            ids: ISource::new(),
         }
     }
 
@@ -119,6 +121,11 @@ impl Resolver {
             .insert(name, id);
         id
     }
+    
+    fn with_id(&mut self, expr: hir::Expression) -> hir::Expr {
+        let id = self.ids.next();
+        hir::Expr { id, expr }
+    }
 }
 
 pub fn ast_to_hir(intrinsics: Vec<String>, module: ast::Module) -> HirResult<hir::Module> {
@@ -153,6 +160,7 @@ pub fn ast_to_hir(intrinsics: Vec<String>, module: ast::Module) -> HirResult<hir
             ident: ident.0,
             return_ty: return_type,
             body,
+            expr_ids: resolver.ids,
         };
 
         globals = resolver.globals;
@@ -170,41 +178,40 @@ pub fn ast_to_hir(intrinsics: Vec<String>, module: ast::Module) -> HirResult<hir
 fn ast_to_hir_expression(
     resolver: &mut Resolver,
     expr: ast::Expression,
-) -> HirResult<hir::Expression> {
-    match expr {
+) -> HirResult<hir::Expr> {
+    let expr: hir::Expression = match expr {
         ast::Expression::Block(statements, last) => resolver.with_scope(|resolver| {
             let statements = statements
                 .into_iter()
                 .map(|expr| ast_to_hir_expression(resolver, expr.0))
                 .collect::<HirResult<Vec<_>>>()?;
+            let unit = resolver.globals.constants.push(hir::Const::Unit);
             let last = last
                 .map(|expr| ast_to_hir_expression(resolver, expr.0))
                 .transpose()?
-                .unwrap_or(hir::Expression::Const(
-                    resolver.globals.constants.push(hir::Const::Unit)
-                ));
+                .unwrap_or(resolver.with_id(hir::Expression::Const(unit)));
             Ok(hir::Expression::Block(statements, Box::new(last)))
-        }),
+        })?,
         ast::Expression::Call { callee, args } => {
             let callee = ast_to_hir_expression(resolver, callee.0)?;
             let args = args
                 .into_iter()
                 .map(|expr| ast_to_hir_expression(resolver, expr.0))
                 .collect::<HirResult<Vec<_>>>()?;
-            Ok(hir::Expression::Method {
+            hir::Expression::Method {
                 object: Box::new(callee),
                 name: "()".to_string(),
                 args,
-            })
+            }
         }
         ast::Expression::Literal(literal) => {
             let constant = match literal {
                 ast::Literal::String(s) => hir::Const::String(s),
                 ast::Literal::Number(n) => hir::Const::Int(n),
             };
-            Ok(hir::Expression::Const(resolver.globals.constants.push(constant)))
+            hir::Expression::Const(resolver.globals.constants.push(constant))
         }
-        ast::Expression::Ident(ident) => resolver.get(&ident),
+        ast::Expression::Ident(ident) => resolver.get(&ident)?,
         ast::Expression::Binary {
             op: Ast(ast::BinaryOp::Assign, _),
             lhs,
@@ -213,12 +220,12 @@ fn ast_to_hir_expression(
             ast::Expression::Ident(ident) => {
                 let rhs = ast_to_hir_expression(resolver, rhs.0)?;
                 let id = resolver.get_local(&ident)?;
-                Ok(hir::Expression::Assign {
+                hir::Expression::Assign {
                     var: id,
                     expr: Box::new(rhs),
-                })
+                }
             }
-            not_ident => Err(HirError::ExpectedIdentifier(not_ident)),
+            not_ident => return Err(HirError::ExpectedIdentifier(not_ident)),
         },
         ast::Expression::Binary { op, lhs, rhs } => {
             let lhs = ast_to_hir_expression(resolver, lhs.0)?;
@@ -229,11 +236,11 @@ fn ast_to_hir_expression(
                 ast::BinaryOp::Mul => "*2".to_string(),
                 ast::BinaryOp::Assign => unreachable!(),
             };
-            Ok(hir::Expression::Method {
+            hir::Expression::Method {
                 object: Box::new(lhs),
                 name: op,
                 args: vec![rhs],
-            })
+            }
         }
         ast::Expression::Unary { op, expr } => {
             let expr = ast_to_hir_expression(resolver, expr.0)?;
@@ -241,24 +248,26 @@ fn ast_to_hir_expression(
                 ast::UnaryOp::Neg => "-1".to_string(),
                 ast::UnaryOp::Pos => "+1".to_string(),
             };
-            Ok(hir::Expression::Method {
+            hir::Expression::Method {
                 object: Box::new(expr),
                 name: op,
                 args: Vec::new(),
-            })
+            }
         }
         ast::Expression::Definition { ident, expr } => {
             let expr = ast_to_hir_expression(resolver, expr.0)?;
             let id = resolver.add_local(ident.0);
 
-            Ok(hir::Expression::Assign {
+            hir::Expression::Assign {
                 var: id,
                 expr: Box::new(expr),
-            })
+            }
         }
         ast::Expression::Return(expr) => {
             let expr = ast_to_hir_expression(resolver, expr.0)?;
-            Ok(hir::Expression::Return(Box::new(expr)))
+            hir::Expression::Return(Box::new(expr))
         }
-    }
+    };
+    
+    Ok(resolver.with_id(expr))
 }

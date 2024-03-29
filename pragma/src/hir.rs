@@ -5,6 +5,7 @@ create_index!(pub LocalId);
 create_index!(pub ConstId);
 create_index!(pub FunctionId);
 create_index!(pub IntrinsicId);
+create_index!(pub ExprId);
 
 #[derive(Debug)]
 pub struct Module {
@@ -16,8 +17,9 @@ pub struct Module {
 pub struct Function {
     pub locals: ISource<LocalId>,
     pub ident: String,
-    pub body: Expression,
+    pub body: Expr,
     pub return_ty: TypeExpr,
+    pub expr_ids: ISource<ExprId>,
 }
 
 #[derive(Debug)]
@@ -41,12 +43,18 @@ pub enum UnaryOp {
 }
 
 #[derive(Debug)]
+pub struct Expr {
+    pub id: ExprId,
+    pub expr: Expression,
+}
+
+#[derive(Debug)]
 pub enum Expression {
-    Block(Vec<Expression>, Box<Expression>),
+    Block(Vec<Expr>, Box<Expr>),
     Method {
-        object: Box<Expression>,
+        object: Box<Expr>,
         name: String,
-        args: Vec<Expression>,
+        args: Vec<Expr>,
     },
     Const(ConstId),
     Local(LocalId),
@@ -54,9 +62,9 @@ pub enum Expression {
     Intrinsic(IntrinsicId),
     Assign {
         var: LocalId,
-        expr: Box<Expression>,
+        expr: Box<Expr>,
     },
-    Return(Box<Expression>),
+    Return(Box<Expr>),
 }
 
 #[derive(Debug)]

@@ -9,6 +9,7 @@ pub enum Type {
     String,
     Function(FunctionId, IVec<ParamId, Type>, Box<Type>),
     Intrinsic(IntrinsicId, IVec<ParamId, Type>, Box<Type>),
+    Never,
 }
 
 impl Type {
@@ -19,6 +20,7 @@ impl Type {
             Type::String => false,
             Type::Function(_, _, _) => true,
             Type::Intrinsic(_, _, _) => true,
+            Type::Never => true,
         }
     }
 }
@@ -59,6 +61,7 @@ pub enum Expression {
         var: LocalId,
         expr: Typed,
     },
+    // TODO: make into tuple variant
     Return {
         value: Typed,
     },
