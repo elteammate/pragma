@@ -58,6 +58,7 @@ pub enum UnaryOp {
 pub enum Expression {
     Block(Vec<Ast<Expression>>, Option<Box<Ast<Expression>>>),
     Return(Box<Ast<Expression>>),
+    ReturnUnit,
     Call {
         callee: Box<Ast<Expression>>,
         args: Vec<Ast<Expression>>,

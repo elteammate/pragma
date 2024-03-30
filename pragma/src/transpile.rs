@@ -496,6 +496,7 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
             tir::Expression::Return { value } if value.ty.is_zero_sized() => {
                 let translated = self.translate_expression(value);
                 result.append(&mut self.ignore_result(translated));
+                result.push(c::Statement::ReturnVoid);
                 None
             }
             tir::Expression::Return { value } => {

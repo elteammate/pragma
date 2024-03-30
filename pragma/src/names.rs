@@ -286,6 +286,10 @@ fn ast_to_hir_expression(
             let expr = ast_to_hir_expression(resolver, expr.0)?;
             hir::Expression::Return(Box::new(expr))
         }
+        ast::Expression::ReturnUnit => {
+            let unit = resolver.globals.constants.push(hir::Const::Unit);
+            hir::Expression::Return(Box::new(resolver.with_id(hir::Expression::Const(unit))))
+        },
     };
     
     Ok(resolver.with_id(expr))

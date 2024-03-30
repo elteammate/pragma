@@ -1,8 +1,8 @@
 fn main(): () {
+    return ();
     x := ---;
     x = ();
     print(f(---, "test"));
-    return ()
 }
 
 fn f(x: Int, s: String): String {
