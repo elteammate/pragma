@@ -6,6 +6,8 @@ use logos::SpannedIter;
 pub enum Token<'s> {
     #[token(";")]
     Semi,
+    #[token(",")]
+    Comma,
     #[token(":")]
     Colon,
     #[token("=")]

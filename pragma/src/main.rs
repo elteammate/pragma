@@ -21,7 +21,7 @@ use crate::names::ast_to_hir;
 use crate::types::solve_types;
 
 fn main() {
-    let program = std::fs::read_to_string("./programs/hello.pragma").unwrap();
+    let program = std::fs::read_to_string("./programs/test.pragma").unwrap();
 
     let mut lex = Token::lexer(&program)
         .spanned()

@@ -1,5 +1,6 @@
 use crate::span::Span;
 
+// TODO: make into a struct
 #[derive(Debug)]
 pub struct Ast<T>(pub T, pub Span);
 
@@ -13,6 +14,13 @@ pub struct Function {
     pub ident: Ast<String>,
     pub return_ty: Option<Ast<TypeExpr>>,
     pub body: Ast<Expression>,
+    pub args: Vec<Ast<Argument>>,
+}
+
+#[derive(Debug)]
+pub struct Argument {
+    pub ident: Ast<String>,
+    pub ty: Ast<TypeExpr>,
 }
 
 #[derive(Debug, Copy, Clone)]

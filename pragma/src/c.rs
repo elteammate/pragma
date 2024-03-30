@@ -14,7 +14,7 @@ macro_rules! typed_id {
         paste! {
             #[derive(Debug, Clone)]
             pub struct [<Typed $name>] {
-                id: $name,
+                pub id: $name,
                 ty: CType,
             }
 
@@ -66,7 +66,8 @@ pub struct ExternalFunction {
 
 #[derive(Debug)]
 pub struct Function {
-    pub parameters: IVec<ParamId, CType>,
+    // TODO: rename parameters to arguments everywhere
+    pub parameters: IVec<ParamId, LocalId>,
     pub body: Vec<Statement>,
     pub locals: IVec<LocalId, CType>,
     pub temps: IVec<TempId, CType>,
@@ -224,7 +225,6 @@ create_expressions! {
     Int(x: i64)[Precedence::Lowest] : CType::Int;
     String(s: String)[Precedence::Lowest] : CType::Pointer(Box::new(CType::Char));
     Local(id: TypedLocalId as LocalId)[Precedence::Lowest] : id.ty();
-    Param(id: TypedParamId as ParamId)[Precedence::Lowest] : id.ty();
     Temp(id: TypedTempId as TempId)[Precedence::Lowest] : id.ty();
     Global(id: TypedFunctionId as FunctionId)[Precedence::Lowest] : id.ty();
     External(id: TypedExternalId as ExternalId)[Precedence::Lowest] : id.ty();

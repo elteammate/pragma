@@ -85,10 +85,37 @@ pub fn parse_program(lex: &mut Lex) -> ParsingResult<Module> {
     Ok(Module { items })
 }
 
+fn extract_pattern(expr: Ast<Expression>) -> ParsingResult<Ast<String>> {
+    let Ast(expr, span) = expr;
+    match expr {
+        Expression::Ident(s) => Ok(Ast(s, span)),
+        _ => Err(ParsingError::IncorrectPattern(
+            "Expected identifier".to_string(),
+            expr,
+        )),
+    }
+}
+
 fn parse_function(lex: &mut Lex) -> ParsingResult<Ast<Function>> {
     let start = eat!(lex, Token::Fn)?.1;
     let ident = eat!(lex, Token::Ident(s), span => Ast(s.to_string(), span))?;
+    
+    let mut args = Vec::new();
     eat!(lex, Token::LParen)?;
+    while !peek!(lex, Token::RParen)? {
+        let arg_name = extract_pattern(parse_primary(lex)?)?;
+        eat!(lex, Token::Colon)?;
+        let arg_ty = parse_type(lex)?;
+        
+        let arg_span = arg_name.1.merge(arg_ty.1);
+        let arg = Ast(Argument { ident: arg_name, ty: arg_ty }, arg_span);
+        args.push(arg);
+        
+        if peek!(lex, Token::RParen)? {
+            break;
+        }
+        eat!(lex, Token::Comma)?;
+    }
     eat!(lex, Token::RParen)?;
 
     let return_type = if peek!(lex, Token::Colon)? {
@@ -99,7 +126,12 @@ fn parse_function(lex: &mut Lex) -> ParsingResult<Ast<Function>> {
     };
 
     let body @ Ast(_, end) = parse_block(lex)?;
-    Ok(Ast(Function { ident, return_ty: return_type, body }, start.merge(end)))
+    Ok(Ast(Function {
+        ident, 
+        return_ty: return_type,
+        args,
+        body,
+    }, start.merge(end)))
 }
 
 fn parse_block(lex: &mut Lex) -> ParsingResult<Ast<Expression>> {
@@ -134,15 +166,7 @@ fn parse_block(lex: &mut Lex) -> ParsingResult<Ast<Expression>> {
 fn parse_expression(lex: &mut Lex) -> ParsingResult<Ast<Expression>> {
     let Ast(expr, start) = parse_primary(lex)?;
     if let Some(Ast(..)) = maybe_eat!(lex, Token::Colon, span => Ast((), span))? {
-        let ident = match expr {
-            Expression::Ident(s) => Ast(s, start),
-            _ => {
-                return Err(ParsingError::IncorrectPattern(
-                    "Expected identifier".to_string(),
-                    expr,
-                ))
-            }
-        };
+        let ident = extract_pattern(Ast(expr, start))?;
         eat!(lex, Token::Eq)?;
         let expr @ Ast(_, end) = parse_expression(lex)?;
         return Ok(Ast(
@@ -271,6 +295,10 @@ fn parse_primary(lex: &mut Lex) -> ParsingResult<Ast<Expression>> {
         eat!(lex, Token::LParen)?;
         while !peek!(lex, Token::RParen)? {
             args.push(parse_expression(lex)?);
+            if peek!(lex, Token::RParen)? {
+                break;
+            }
+            eat!(lex, Token::Comma)?;
         }
         let end = eat!(lex, Token::RParen)?.1;
         return Ok(Ast(

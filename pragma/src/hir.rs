@@ -17,6 +17,7 @@ pub struct Module {
 pub struct Function {
     pub locals: ISource<LocalId>,
     pub ident: String,
+    pub args: IVec<LocalId, TypeExpr>,
     pub body: Expr,
     pub return_ty: TypeExpr,
     pub expr_ids: ISource<ExprId>,

@@ -21,7 +21,10 @@ pub fn solve_types(module: hir::Module) -> TypeResult<tir::Module> {
     let function_types: IVec<FunctionId, Type> = module
         .functions
         .indexed_iter()
-        .map(|(id, f)| Type::Function(id, ivec![], Box::new(eval_type_expr(&f.return_ty))))
+        .map(|(id, f)| {
+            let arg_tys = f.args.iter().map(eval_type_expr).collect();
+            Type::Function(id, arg_tys, Box::new(eval_type_expr(&f.return_ty)))
+        })
         .collect();
 
     let functions: IVec<FunctionId, tir::Function> = module
@@ -302,6 +305,12 @@ fn solve_function(
     function: &hir::Function,
 ) -> TypeResult<tir::Function> {
     let mut ctx = TyContext::new(module, function_types, function);
+    
+    let mut args = ivec![];
+    for (local, ty) in function.args.indexed_iter() {
+        ctx.assign(TyVar::Local(local), eval_type_expr(ty).into())?;
+        args.push(local);
+    }
 
     let (ret_ty, flow) = form_equations(&mut ctx, &function.body)?;
 
@@ -312,6 +321,7 @@ fn solve_function(
     solve_equations(&mut ctx)?;
 
     Ok(tir::Function {
+        ident: function.ident.clone(),
         locals: ctx
             .local_bounds
             .iter()
@@ -321,7 +331,7 @@ fn solve_function(
                 Some(ty) => Ok(ty.clone().try_into().unwrap()),
             })
             .collect::<TypeResult<IVec<LocalId, Type>>>()?,
-        ident: function.ident.clone(),
+        args,
         body: assign_types(&ctx, &function.body),
     })
 }

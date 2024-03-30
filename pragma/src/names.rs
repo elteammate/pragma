@@ -70,7 +70,7 @@ impl Resolver {
     fn new(globals: GlobalResolver) -> Self {
         Self {
             locals: ISource::new(),
-            local_scopes: Vec::new(),
+            local_scopes: vec![HashMap::new()],
             globals,
             ids: ISource::new(),
         }
@@ -141,15 +141,29 @@ pub fn ast_to_hir(intrinsics: Vec<String>, module: ast::Module) -> HirResult<hir
 
     let mut functions: IVec<hir::FunctionId, hir::Function> = ivec![];
 
-    for ast::Function { body, ident, return_ty: return_type } in ast_functions {
+    for ast::Function {
+        body, 
+        ident, 
+        return_ty,
+        args,
+    } in ast_functions {
         let mut resolver = Resolver::new(globals);
+
+        let args = args
+            .into_iter()
+            .map(|arg| {
+                let ty = ast_to_hir_type_expr(&mut resolver.globals, arg.0.ty.0)?;
+                resolver.add_local(arg.0.ident.0);
+                Ok(ty)
+            })
+            .collect::<HirResult<_>>()?;
 
         let body = resolver.with_scope(
             |resolver|
                 ast_to_hir_expression(resolver, body.0)
         )?;
 
-        let return_type = match return_type {
+        let return_type = match return_ty {
             None => hir::TypeExpr::Unit,
             Some(return_type) =>
                 ast_to_hir_type_expr(&mut resolver.globals, return_type.0)?,
@@ -158,6 +172,7 @@ pub fn ast_to_hir(intrinsics: Vec<String>, module: ast::Module) -> HirResult<hir
         let function = hir::Function {
             locals: resolver.locals,
             ident: ident.0,
+            args,
             return_ty: return_type,
             body,
             expr_ids: resolver.ids,

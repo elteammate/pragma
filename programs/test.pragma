@@ -1,7 +1,8 @@
 fn main() {
-    print(f());
+    print(f(5, "test"));
 }
 
-fn f(): String {
+fn f(x: Int, s: String): String {
+    println(s);
     return "Hello, World!";
 }
