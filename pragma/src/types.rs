@@ -186,6 +186,14 @@ impl<'hir> TyContext<'hir> {
                 self.assign_impl(a, UnsolvedType::Var(b))?;
                 UnsolvedType::Var(b)
             },
+            (UnsolvedType::Var(a), b) => {
+                self.assign_impl(a, b.clone())?;
+                b
+            },
+            (a, UnsolvedType::Var(b)) => {
+                self.assign_impl(b, a.clone())?;
+                a
+            },
             (UnsolvedType::Function(id1, args1, ret1), UnsolvedType::Function(id2, args2, ret2)) => {
                 if id1 != id2 {
                     return Ok(UnsolvedType::Never);
