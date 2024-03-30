@@ -277,9 +277,14 @@ fn parse_primary(lex: &mut Lex) -> ParsingResult<Ast<Expression>> {
             }, start.merge(end))
         },
         Token::LParen, start => {
-            let Ast(expr, _) = parse_expression(lex)?;
-            let end = eat!(lex, Token::RParen)?.1;
-            Ast(expr, start.merge(end))
+            if peek!(lex, Token::RParen)? {
+                let end = eat!(lex, Token::RParen)?.1;
+                Ast(Expression::Literal(Literal::Unit), start.merge(end))
+            } else {
+                let Ast(expr, _) = parse_expression(lex)?;
+                let end = eat!(lex, Token::RParen)?.1;
+                Ast(expr, start.merge(end))
+            }
         },
         Token::Return, start => {
             let expr = parse_expression(lex)?;

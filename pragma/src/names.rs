@@ -220,6 +220,7 @@ fn ast_to_hir_expression(
         }
         ast::Expression::Literal(literal) => {
             let constant = match literal {
+                ast::Literal::Unit => hir::Const::Unit,
                 ast::Literal::Uninit => return Ok(resolver.with_id(hir::Expression::Uninit)),
                 ast::Literal::String(s) => hir::Const::String(s),
                 ast::Literal::Number(n) => hir::Const::Int(n),
