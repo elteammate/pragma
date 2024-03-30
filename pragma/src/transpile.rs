@@ -13,7 +13,7 @@ pub fn transpile_to_c(module: tir::Module) -> c::Module {
         .find(|(_, f)| f.ident == "main")
         .expect("Main function not found");
 
-    assert_eq!(main.body.ty, Type::Unit);
+    assert_eq!(main.return_ty, Type::Unit);
 
     let main_ty = Type::Function(main_id, ivec![], Box::new(Type::Unit));
 
@@ -386,7 +386,7 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
 
     fn translate_function(&mut self, id: tir::FunctionId) -> Vec<c::Statement> {
         let function = &self.module.module.functions[id];
-        
+
         self.parameters = function.args.iter().filter_map(|&local| {
             let ty = &function.locals[local];
             if ty.is_zero_sized() {
@@ -394,7 +394,7 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
             }
             Some(self.get_local(local))
         }).collect();
-        
+
         let body = &function.body;
         let (mut statements, result) = self.translate_expression(body);
         if let Some(result) = result {

@@ -33,6 +33,7 @@ pub struct Module {
 #[derive(Debug)]
 pub struct Function {
     pub ident: String,
+    pub return_ty: Type,
     pub args: IVec<ParamId, LocalId>,
     pub locals: IVec<LocalId, Type>,
     pub body: Typed,

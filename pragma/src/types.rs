@@ -336,6 +336,7 @@ fn solve_function(
             .collect::<TypeResult<IVec<LocalId, Type>>>()?,
         args: function.args.clone(),
         body: assign_types(&ctx, &function.body),
+        return_ty: ctx.return_ty.clone(),
     })
 }
 
