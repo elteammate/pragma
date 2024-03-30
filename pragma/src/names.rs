@@ -261,12 +261,16 @@ fn ast_to_hir_expression(
                 args: vec![rhs],
             }
         }
-        ast::Expression::Unary { op, expr } => {
+        ast::Expression::Ref { expr } => {
             let expr = ast_to_hir_expression(resolver, expr.0)?;
+            hir::Expression::Ref(Box::new(expr))
+        }
+        ast::Expression::Unary { op, expr } => {
             let op = match op.0 {
                 ast::UnaryOp::Neg => "-1".to_string(),
                 ast::UnaryOp::Pos => "+1".to_string(),
             };
+            let expr = ast_to_hir_expression(resolver, expr.0)?;
             hir::Expression::Method {
                 object: Box::new(expr),
                 name: op,

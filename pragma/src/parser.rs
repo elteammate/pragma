@@ -265,6 +265,13 @@ fn parse_primary(lex: &mut Lex) -> ParsingResult<Ast<Expression>> {
         Token::String(s), span => Ast(Expression::Literal(Literal::String(s.to_string())), span),
         Token::Ident(s), span => Ast(Expression::Ident(s.to_string()), span),
         Token::Uninit, span => Ast(Expression::Literal(Literal::Uninit), span),
+        Token::Ampersand, start => {
+            let expr = parse_primary(lex)?;
+            let end = expr.1;
+            Ast(Expression::Ref {
+                expr: Box::new(expr),
+            }, start.merge(end))
+        },
         Token::Plus, start => {
             let expr = parse_primary(lex)?;
             let end = expr.1;

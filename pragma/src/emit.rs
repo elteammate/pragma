@@ -377,6 +377,10 @@ fn emit_expression<'c>(
         Expression::Temp { id } => write!(builder, "{}", names.get_temp(*id))?,
         Expression::Global { id } => write!(builder, "{}", builder.get_function_name(*id))?,
         Expression::External { id } => write!(builder, "{}", builder.get_external_name(*id))?,
+        Expression::Ref { x } => {
+            write!(builder, "&")?;
+            emit_expression(builder, names, &x.expr, Precedence::PrefixUnary, true)?;
+        }
         Expression::Call { f, args } => {
             emit_expression(builder, names, &f.expr, Precedence::SuffixUnary, false)?;
             write!(builder, "(")?;

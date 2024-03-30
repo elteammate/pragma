@@ -361,6 +361,11 @@ fn form_equations<'hir>(
         hir::Expression::Local(l) => UnsolvedType::Var(TyVar::Local(*l)),
         hir::Expression::Function(f) => ctx.function_types[*f].clone().into(),
         hir::Expression::Intrinsic(f) => ctx.intrinsic(*f).into(),
+        hir::Expression::Ref(expr) => {
+            let (ty, expr_flow) = form_equations(ctx, expr)?;
+            flow.merge_with(expr_flow);
+            UnsolvedType::Pointer(Box::new(UnsolvedType::Var(ty)))
+        }
         hir::Expression::Block(stmts, expr) => {
             for stmt in stmts {
                 if !flow.reachable { ctx.reachability[stmt.id] = false; }
@@ -536,6 +541,10 @@ fn assign_types(ctx: &TyContext, expr: &hir::Expr) -> tir::Typed {
         hir::Expression::Local(l) => assign(tir::Expression::Local(*l)),
         hir::Expression::Function(f) => assign(tir::Expression::Function(*f)),
         hir::Expression::Intrinsic(f) => assign(tir::Expression::Intrinsic(*f)),
+        hir::Expression::Ref(expr) => {
+            let expr = assign_types(ctx, expr);
+            assign(tir::Expression::Ref(Box::new(expr)))
+        },
         hir::Expression::Block(exprs, expr) => {
             let mut typed_exprs = vec![];
             for expr in exprs {

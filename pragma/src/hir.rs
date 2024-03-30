@@ -63,6 +63,7 @@ pub enum Expression {
     Local(LocalId),
     Function(FunctionId),
     Intrinsic(IntrinsicId),
+    Ref(Box<Expr>),
     Assign {
         var: LocalId,
         expr: Box<Expr>,

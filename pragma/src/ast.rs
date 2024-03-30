@@ -70,6 +70,9 @@ pub enum Expression {
         lhs: Box<Ast<Expression>>,
         rhs: Box<Ast<Expression>>,
     },
+    Ref {
+        expr: Box<Ast<Expression>>,
+    },
     Unary {
         op: Ast<UnaryOp>,
         expr: Box<Ast<Expression>>,

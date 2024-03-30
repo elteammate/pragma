@@ -286,6 +286,7 @@ create_expressions! {
         assert_eq!(&x.ty, &CType::Int);
         x.ty.clone()
     };
+    Ref(x: Expr as Box<Expr>)[Precedence::PrefixUnary] : CType::Pointer(Box::new(x.ty.clone()));
     Cast(x: Expr as Box<Expr>, ty: CType)[Precedence::PrefixUnary] : ty.clone();
     // Type is left blank because it's determined by the struct
     StructAccess(x: Expr as Box<Expr>, field: StructFieldId)[Precedence::SuffixUnary] : ;

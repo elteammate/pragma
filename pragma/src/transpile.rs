@@ -1,3 +1,4 @@
+use std::any::Any;
 use crate::c::{CType, Expr, ExternalId, FunctionId, LocalId, ParamId, StructFieldId, StructId, TempId, TypedExternalId, TypedFunctionId, TypedLocalId, TypedParamId};
 use crate::ivec::{IIndex, IVec};
 use crate::tir::Type;
@@ -341,6 +342,15 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
             registered_locals: ivec![None; local_count],
         }
     }
+    
+    fn is_lvalue(&self, expr: &Expr) -> bool {
+        match expr.expr {
+            c::Expression::Local { .. } => true,
+            c::Expression::Temp { .. } => true,
+            c::Expression::StructAccess { .. } => true,
+            _ => false,
+        }
+    }
 
     fn temp(&mut self, ty: CType) -> c::TypedTempId {
         c::TypedTempId::new(self.temps.push(ty.clone()), ty)
@@ -424,6 +434,28 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
                 let (mut stmts, last) = self.translate_expression(last);
                 result.append(&mut stmts);
                 last
+            }
+            tir::Expression::Ref(expr) => {
+                let (mut stmts, c_expr) = self.translate_expression(expr);
+                result.append(&mut stmts);
+                let pointee_ty = &expr.ty;
+                if expr.ty.is_zero_sized() {
+                    let ty = self.module.ty2c(ty.clone());
+                    Some(Expr::new_cast(Expr::new_int(0), ty))
+                } else {
+                    let c_expr = c_expr.expect("It must contain a value");
+                    if self.is_lvalue(&c_expr) {
+                        Some(Expr::new_ref(c_expr))
+                    } else {
+                        let temp_ty = self.module.ty2c(pointee_ty.clone());
+                        let temp = self.temp(temp_ty);
+                        result.push(c::Statement::Expression(Expr::new_assign_temp(
+                            temp.clone(),
+                            c_expr,
+                        )));
+                        Some(Expr::new_ref(Expr::new_temp(temp)))
+                    }
+                }
             }
             tir::Expression::Constant(constant) => {
                 let constant = &self.module.module.constants[*constant];
