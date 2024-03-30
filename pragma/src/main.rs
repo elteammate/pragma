@@ -100,6 +100,7 @@ fn main() {
 
     if !output.status.success() {
         println!("GCC failed: {}", String::from_utf8_lossy(&output.stderr));
+        return;
     }
 
     println!("\nRunning output/out");

@@ -6,6 +6,7 @@ use crate::ivec::{IIndex, IVec};
 use crate::tir::Type;
 use crate::{c, ivec, tir};
 use std::collections::HashMap;
+use std::iter::Cycle;
 
 pub fn transpile_to_c(module: tir::Module) -> c::Module {
     let mut cbuilder = CBuilder::new(&module);
@@ -249,7 +250,7 @@ impl<'tir> CBuilder<'tir> {
                         ))],
                         locals: ivec![],
                         temps: ivec![],
-                        return_type: string,
+                        return_type: CType::Void,
                     }
                 }
                 1 => {
@@ -276,7 +277,7 @@ impl<'tir> CBuilder<'tir> {
                         ))],
                         locals: ivec![],
                         temps: ivec![],
-                        return_type: string,
+                        return_type: CType::Void,
                     }
                 }
                 _ => panic!("Unknown intrinsic"),
@@ -466,7 +467,7 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
 
                 Some(Expr::new_call(Expr::new_global(id), args.into()))
             }
-            tir::Expression::Assign { var: _, expr } if zero_sized => {
+            tir::Expression::Assign { var: _, expr } if expr.ty.is_zero_sized() => {
                 let translated = self.translate_expression(expr);
                 result.append(&mut self.ignore_result(translated));
                 None
@@ -475,6 +476,7 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
                 var: local,
                 expr: value,
             } => {
+                let ty = &self.function.locals[*local];
                 let local = self.get_local(*local);
                 let (mut stmts, value) = self.translate_expression(value);
                 result.append(&mut stmts);
@@ -484,7 +486,7 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
                 )));
                 None
             }
-            tir::Expression::Return { value } if zero_sized => {
+            tir::Expression::Return { value } if value.ty.is_zero_sized() => {
                 let translated = self.translate_expression(value);
                 result.append(&mut self.ignore_result(translated));
                 None
@@ -493,6 +495,9 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
                 let (mut stmts, value) = self.translate_expression(value);
                 result.append(&mut stmts);
                 result.push(c::Statement::Return(value.unwrap()));
+                None
+            }
+            tir::Expression::Trap => {
                 None
             }
         };

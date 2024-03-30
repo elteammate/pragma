@@ -1,6 +1,7 @@
 fn main() {
-    x := "";
+    x := "a string";
     y := 5 * 10 + 12 * ---5 + 1;
+    println(x);
     println("Hello, world!");
     println({
         f();
@@ -10,6 +11,7 @@ fn main() {
     });
     println(get_str());
     println(get_str2());
+    println(g());
 }
 
 fn f() {
@@ -18,10 +20,14 @@ fn f() {
 
 fn get_str(): String {
     return "a returned string";
-    ""
 }
 
 fn get_str2(): String {
     s := "a returned string 2";
     s
+}
+
+fn g(): String {
+    return "returned a string";
+    2 + 2
 }

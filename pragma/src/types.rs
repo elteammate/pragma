@@ -123,12 +123,24 @@ struct MethodConstraint {
 }
 
 #[derive(Debug)]
+struct ControlFlow {
+    reachable: bool,
+}
+
+impl ControlFlow {
+    fn merge_with(&mut self, other: ControlFlow) {
+        self.reachable &= other.reachable;
+    }
+}
+
+#[derive(Debug)]
 struct TyContext<'hir> {
     module: &'hir hir::Module,
     function_types: &'hir IVec<FunctionId, Type>,
     local_bounds: IVec<LocalId, Option<UnsolvedType>>,
     expr_bounds: IVec<ExprId, Option<UnsolvedType>>,
     method_bounds: Vec<MethodConstraint>,
+    reachability: IVec<ExprId, bool>,
     return_ty: Type,
     occurrence_stack: Vec<TyVar>,
 }
@@ -155,6 +167,7 @@ impl<'hir> TyContext<'hir> {
             return_ty: eval_type_expr(&function.return_ty),
             occurrence_stack: vec![],
             method_bounds: vec![],
+            reachability: function.expr_ids.iter().map(|_| true).collect(),
         }
     }
 
@@ -290,8 +303,11 @@ fn solve_function(
 ) -> TypeResult<tir::Function> {
     let mut ctx = TyContext::new(module, function_types, function);
 
-    let return_type = form_equations(&mut ctx, &function.body)?;
-    ctx.assign(return_type, ctx.return_ty.clone().into())?;
+    let (ret_ty, flow) = form_equations(&mut ctx, &function.body)?;
+
+    if flow.reachable {
+        ctx.assign(ret_ty, ctx.return_ty.clone().into())?;
+    }
 
     solve_equations(&mut ctx)?;
 
@@ -313,52 +329,64 @@ fn solve_function(
 fn form_equations<'hir>(
     ctx: &mut TyContext<'hir>,
     expr: &'hir hir::Expr,
-) -> TypeResult<TyVar> {
+) -> TypeResult<(TyVar, ControlFlow)> {
     let ty_var = TyVar::Expr(expr.id);
-    
+    let mut flow = ControlFlow { reachable: true };
+
     let ty = match &expr.expr {
         hir::Expression::Const(c) => const_ty(&ctx.module.constants[*c]).into(),
         hir::Expression::Local(l) => UnsolvedType::Var(TyVar::Local(*l)),
         hir::Expression::Function(f) => ctx.function_types[*f].clone().into(),
         hir::Expression::Intrinsic(f) => ctx.intrinsic(*f).into(),
         hir::Expression::Block(stmts, expr) => {
-            // TODO: never type
-            for expr in stmts {
-                form_equations(ctx, expr)?;
+            for stmt in stmts {
+                if !flow.reachable { ctx.reachability[stmt.id] = false; }
+                let (_stmt_ty, stmt_flow) = form_equations(ctx, stmt)?;
+                flow.merge_with(stmt_flow);
             }
-            UnsolvedType::Var(form_equations(ctx, expr)?)
+            if !flow.reachable { ctx.reachability[expr.id] = false; }
+            let (expr_ty, expr_flow) = form_equations(ctx, expr)?;
+            flow.merge_with(expr_flow);
+            UnsolvedType::Var(expr_ty)
         }
         hir::Expression::Method { object, args, name } => {
-            let object = form_equations(ctx, object)?;
-
-            let args = args
-                .iter()
-                .map(|arg| Ok(UnsolvedType::Var(form_equations(ctx, arg)?)))
-                .collect::<TypeResult<_>>()?;
+            let (object, obj_flow) = form_equations(ctx, object)?;
+            flow.merge_with(obj_flow);
+            
+            let mut arg_tys = vec![];
+            for arg in args {
+                if !flow.reachable { ctx.reachability[expr.id] = false; }
+                let (arg, arg_flow) = form_equations(ctx, arg)?;
+                flow.merge_with(arg_flow);
+                arg_tys.push(UnsolvedType::Var(arg));
+            }
             
             ctx.method_bounds.push(MethodConstraint {
                 ty: object,
                 name: name.clone(),
-                args,
+                args: arg_tys,
                 ret: UnsolvedType::Var(TyVar::Expr(expr.id)),
             });
             
-            return Ok(ty_var);
+            return Ok((ty_var, flow));
         }
         hir::Expression::Assign { var, expr } => {
-            let ty = form_equations(ctx, expr)?;
-            ctx.assign(TyVar::Local(*var), UnsolvedType::Var(ty))?;
+            let (ty, expr_flow) = form_equations(ctx, expr)?;
+            if expr_flow.reachable {
+                ctx.assign(TyVar::Local(*var), UnsolvedType::Var(ty))?;
+            }
             UnsolvedType::Unit
         }
         hir::Expression::Return(expr) => {
-            let ty = form_equations(ctx, expr)?;
+            let (ty, _flow) = form_equations(ctx, expr)?;
             ctx.assign(ty, ctx.return_ty.clone().into())?;
+            flow.reachable = false;
             UnsolvedType::Never
         }
     };
     
     ctx.assign(ty_var, ty)?;
-    Ok(ty_var)
+    Ok((ty_var, flow))
 }
 
 fn solve_equations(
@@ -460,6 +488,13 @@ fn solve_equations(
 }
 
 fn assign_types(ctx: &TyContext, expr: &hir::Expr) -> tir::Typed {
+    if !ctx.reachability[expr.id] {
+        return tir::Typed {
+            ty: Type::Never,
+            expr: Box::new(tir::Expression::Trap),
+        };
+    }
+    
     let ty: Type = match ctx.expr_bounds[expr.id].clone() {
         None => panic!("Unknown type"),
         Some(ty) => ty.try_into().unwrap(),

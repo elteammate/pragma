@@ -65,4 +65,5 @@ pub enum Expression {
     Return {
         value: Typed,
     },
+    Trap,
 }

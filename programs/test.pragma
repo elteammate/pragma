@@ -1,0 +1,7 @@
+fn main() {
+    print(f());
+}
+
+fn f(): String {
+    return "Hello, World!";
+}
