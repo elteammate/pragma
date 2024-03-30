@@ -75,6 +75,7 @@ pub enum TypeExpr {
     Unit,
     Int,
     String,
+    Pointer(Box<TypeExpr>),
 }
 
 // TODO: outdated, to be removed/replaced

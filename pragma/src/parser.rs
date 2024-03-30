@@ -250,6 +250,11 @@ fn parse_type(lex: &mut Lex) -> ParsingResult<Ast<TypeExpr>> {
         Token::LParen, start => {
             let end = eat!(lex, Token::RParen)?.1;
             Ast(TypeExpr::Unit, start.merge(end))
+        },
+        Token::Star, start => {
+            let ty = parse_type(lex)?;
+            let end = ty.1;
+            Ast(TypeExpr::Pointer(Box::new(ty)), start.merge(end))
         }
     )
 }

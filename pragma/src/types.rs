@@ -55,6 +55,7 @@ enum UnsolvedType {
     Int,
     String,
     Var(TyVar),
+    Pointer(Box<UnsolvedType>),
     Function(FunctionId, IVec<ParamId, UnsolvedType>, Box<UnsolvedType>),
     Intrinsic(IntrinsicId, IVec<ParamId, UnsolvedType>, Box<UnsolvedType>),
     Never,
@@ -73,6 +74,7 @@ fn eval_type_expr(expr: &hir::TypeExpr) -> Type {
         hir::TypeExpr::Unit => Type::Unit,
         hir::TypeExpr::Int => Type::Int,
         hir::TypeExpr::String => Type::String,
+        hir::TypeExpr::Pointer(ty) => Type::Pointer(Box::new(eval_type_expr(ty))),
     }
 }
 
@@ -82,6 +84,7 @@ impl From<Type> for UnsolvedType {
             Type::Unit => UnsolvedType::Unit,
             Type::Int => UnsolvedType::Int,
             Type::String => UnsolvedType::String,
+            Type::Pointer(ty) => UnsolvedType::Pointer(Box::new((*ty).into())),
             Type::Function(id, args, ret) => UnsolvedType::Function(
                 id,
                 args.into_iter().map(|ty| ty.into()).collect(),
@@ -106,6 +109,7 @@ impl TryFrom<UnsolvedType> for Type {
             UnsolvedType::Int => Ok(Type::Int),
             UnsolvedType::String => Ok(Type::String),
             UnsolvedType::Var(_) => Err(()),
+            UnsolvedType::Pointer(ty) => Ok(Type::Pointer(Box::new((*ty).try_into().unwrap()))),
             UnsolvedType::Function(id, args, ret) => Ok(Type::Function(
                 id,
                 args.into_iter().map(|ty| ty.try_into().unwrap()).collect(),
@@ -201,6 +205,9 @@ impl<'hir> TyContext<'hir> {
             (UnsolvedType::Unit, UnsolvedType::Unit) => UnsolvedType::Unit,
             (UnsolvedType::Int, UnsolvedType::Int) => UnsolvedType::Int,
             (UnsolvedType::String, UnsolvedType::String) => UnsolvedType::String,
+            (UnsolvedType::Pointer(a), UnsolvedType::Pointer(b)) => {
+                UnsolvedType::Pointer(Box::new(self.unify_impl(*a, *b)?))
+            },
             (UnsolvedType::Var(a), UnsolvedType::Var(b)) if a == b => UnsolvedType::Var(a),
             (UnsolvedType::Var(a), UnsolvedType::Var(b)) => {
                 self.assign_impl(a, UnsolvedType::Var(b))?;
@@ -298,6 +305,7 @@ impl<'hir> TyContext<'hir> {
                 }
                 self.substitute(alpha, sigma, ret)
             },
+            UnsolvedType::Pointer(ty) => self.substitute(alpha, sigma, ty),
             _ => Ok(()),
         }
     }

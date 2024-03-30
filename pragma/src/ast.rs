@@ -85,6 +85,7 @@ pub enum Expression {
 pub enum TypeExpr {
     Unit,
     Ident(String),
+    Pointer(Box<Ast<TypeExpr>>),
 }
 
 #[derive(Debug)]

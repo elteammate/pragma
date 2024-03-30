@@ -3,6 +3,7 @@ use crate::ivec::{IIndex, IVec};
 use crate::tir::Type;
 use crate::{c, ivec, tir};
 use std::collections::HashMap;
+use crate::c::CType::Char;
 
 pub fn transpile_to_c(module: tir::Module) -> c::Module {
     let mut cbuilder = CBuilder::new(&module);
@@ -92,10 +93,14 @@ impl<'tir> CBuilder<'tir> {
 
     fn ty2c(&mut self, ty: Type) -> CType {
         match ty {
+            ty if ty.is_zero_sized() => panic!("Zero-sized type"),
             Type::Int => CType::Struct(self.get_int_struct()),
             Type::String => CType::Struct(self.get_string_struct()),
-            ty if ty.is_zero_sized() => panic!("Zero-sized type"),
-            _ => todo!("Arbitrary types are not implemented yet"),
+            Type::Pointer(ty) => match *ty {
+                ty if ty.is_zero_sized() => CType::Pointer(Box::new(CType::Void)),
+                ty => CType::Pointer(Box::new(self.ty2c(ty))),
+            },
+            _ => panic!("Type {ty:?} is not zero sized, but does not have C representation")
         }
     }
 
@@ -521,6 +526,10 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
                         self.module.get_string_struct(),
                         ivec![],
                     )),
+                    Type::Pointer(_) => {
+                        let ty = self.module.ty2c(ty.clone());
+                        Some(Expr::new_cast(Expr::new_int(0), ty))
+                    },
                     _ => todo!("Uninitialized construction of arbitrary types"),
                 }
             }

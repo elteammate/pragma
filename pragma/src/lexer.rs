@@ -36,6 +36,8 @@ pub enum Token<'s> {
     Minus,
     #[token("*")]
     Star,
+    #[token("&")]
+    Ampersand,
     #[regex(r"\d+")]
     Number(&'s str),
     #[regex(r#""(\\"|\\n|\\t|\\r|[^"\n])*""#, |lex| {

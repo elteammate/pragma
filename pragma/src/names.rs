@@ -50,6 +50,9 @@ fn ast_to_hir_type_expr(
     expr: ast::TypeExpr,
 ) -> HirResult<hir::TypeExpr> {
     match expr {
+        ast::TypeExpr::Pointer(inner) => Ok(
+            hir::TypeExpr::Pointer(Box::new(ast_to_hir_type_expr(_resolver, inner.0)?)
+        )),
         ast::TypeExpr::Unit => Ok(hir::TypeExpr::Unit),
         ast::TypeExpr::Ident(ident) => match &ident[..] {
             "Int" => Ok(hir::TypeExpr::Int),

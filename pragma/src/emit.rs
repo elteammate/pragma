@@ -415,6 +415,12 @@ fn emit_expression<'c>(
             write!(builder, "-")?;
             emit_expression(builder, names, &x.expr, Precedence::PrefixUnary, true)?;
         }
+        Expression::Cast { ty, x } => {
+            write!(builder, "(")?;
+            emit_type(builder, ty.clone())?;
+            write!(builder, ")")?;
+            emit_expression(builder, names, &x.expr, Precedence::PrefixUnary, true)?;
+        }
         Expression::StructAccess { x, field } => {
             emit_expression(builder, names, &x.expr, Precedence::SuffixUnary, false)?;
             let field = builder.get_struct_field(*field);
