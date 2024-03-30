@@ -46,6 +46,7 @@ pub struct Typed {
 
 #[derive(Debug)]
 pub enum Expression {
+    Uninit,
     Constant(ConstId),
     Local(LocalId),
     Function(FunctionId),

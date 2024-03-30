@@ -14,6 +14,8 @@ pub enum Token<'s> {
     Eq,
     #[token("fn")]
     Fn,
+    #[token("---")]
+    Uninit,
     #[token("return")]
     Return,
     #[token("{")]

@@ -142,8 +142,8 @@ pub fn ast_to_hir(intrinsics: Vec<String>, module: ast::Module) -> HirResult<hir
     let mut functions: IVec<hir::FunctionId, hir::Function> = ivec![];
 
     for ast::Function {
-        body, 
-        ident, 
+        body,
+        ident,
         return_ty,
         args,
     } in ast_functions {
@@ -220,6 +220,7 @@ fn ast_to_hir_expression(
         }
         ast::Expression::Literal(literal) => {
             let constant = match literal {
+                ast::Literal::Uninit => return Ok(resolver.with_id(hir::Expression::Uninit)),
                 ast::Literal::String(s) => hir::Const::String(s),
                 ast::Literal::Number(n) => hir::Const::Int(n),
             };

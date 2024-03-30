@@ -507,6 +507,22 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
             tir::Expression::Trap => {
                 None
             }
+            tir::Expression::Uninit if ty.is_zero_sized() => {
+                None
+            }
+            tir::Expression::Uninit => {
+                match ty {
+                    Type::Int => Some(Expr::new_struct_build(
+                        self.module.get_int_struct(),
+                        ivec![],
+                    )),
+                    Type::String => Some(Expr::new_struct_build(
+                        self.module.get_string_struct(),
+                        ivec![],
+                    )),
+                    _ => todo!("Uninitialized construction of arbitrary types"),
+                }
+            }
         };
 
         (result, last)

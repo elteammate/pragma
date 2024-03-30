@@ -347,6 +347,7 @@ fn form_equations<'hir>(
     let mut flow = ControlFlow { reachable: true };
 
     let ty = match &expr.expr {
+        hir::Expression::Uninit => return Ok((ty_var, flow)),
         hir::Expression::Const(c) => const_ty(&ctx.module.constants[*c]).into(),
         hir::Expression::Local(l) => UnsolvedType::Var(TyVar::Local(*l)),
         hir::Expression::Function(f) => ctx.function_types[*f].clone().into(),
@@ -521,6 +522,7 @@ fn assign_types(ctx: &TyContext, expr: &hir::Expr) -> tir::Typed {
     };
     
     match &expr.expr {
+        hir::Expression::Uninit => assign(tir::Expression::Uninit),
         hir::Expression::Const(c) => assign(tir::Expression::Constant(*c)),
         hir::Expression::Local(l) => assign(tir::Expression::Local(*l)),
         hir::Expression::Function(f) => assign(tir::Expression::Function(*f)),

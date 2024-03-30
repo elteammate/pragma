@@ -88,6 +88,8 @@ pub enum TypeExpr {
 
 #[derive(Debug)]
 pub enum Literal {
+    Uninit,
+    // TODO: add unit
     Number(i64),
     String(String),
 }

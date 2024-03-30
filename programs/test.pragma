@@ -1,9 +1,7 @@
 fn main() {
-    x: Int = 5;
-    {
-        x: String = "test";
-    };
-    print(f(x, "test"));
+    x := ---;
+    x = 5;
+    print(f(---, "test"));
 }
 
 fn f(x: Int, s: String): String {

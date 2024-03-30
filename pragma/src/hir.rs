@@ -58,6 +58,7 @@ pub enum Expression {
         name: String,
         args: Vec<Expr>,
     },
+    Uninit,
     Const(ConstId),
     Local(LocalId),
     Function(FunctionId),
