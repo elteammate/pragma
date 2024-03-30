@@ -1,5 +1,9 @@
 fn main() {
-    print(f(5, "test"));
+    x: Int = 5;
+    {
+        x: String = "test";
+    };
+    print(f(x, "test"));
 }
 
 fn f(x: Int, s: String): String {

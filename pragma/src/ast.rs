@@ -75,6 +75,7 @@ pub enum Expression {
     },
     Definition {
         ident: Ast<String>,
+        ty: Option<Ast<TypeExpr>>,
         expr: Box<Ast<Expression>>,
     },
 }

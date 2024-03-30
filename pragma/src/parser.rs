@@ -167,11 +167,19 @@ fn parse_expression(lex: &mut Lex) -> ParsingResult<Ast<Expression>> {
     let Ast(expr, start) = parse_primary(lex)?;
     if let Some(Ast(..)) = maybe_eat!(lex, Token::Colon, span => Ast((), span))? {
         let ident = extract_pattern(Ast(expr, start))?;
+        
+        let ty = if !peek!(lex, Token::Eq)? {
+            Some(parse_type(lex)?)
+        } else {
+            None
+        };
+        
         eat!(lex, Token::Eq)?;
         let expr @ Ast(_, end) = parse_expression(lex)?;
         return Ok(Ast(
             Expression::Definition {
                 ident,
+                ty,
                 expr: Box::new(expr),
             },
             start.merge(end),

@@ -22,7 +22,11 @@ pub fn solve_types(module: hir::Module) -> TypeResult<tir::Module> {
         .functions
         .indexed_iter()
         .map(|(id, f)| {
-            let arg_tys = f.args.iter().map(eval_type_expr).collect();
+            let arg_tys = 
+                f.args
+                    .iter()
+                    .map(|id| eval_type_expr(&f.locals[*id].clone().expect("type parameters must have type annotations")))
+                    .collect();
             Type::Function(id, arg_tys, Box::new(eval_type_expr(&f.return_ty)))
         })
         .collect();
@@ -306,10 +310,9 @@ fn solve_function(
 ) -> TypeResult<tir::Function> {
     let mut ctx = TyContext::new(module, function_types, function);
     
-    let mut args = ivec![];
-    for (local, ty) in function.args.indexed_iter() {
+    for (local, ty) in function.locals.indexed_iter() {
+        let Some(ty) = ty else { continue };
         ctx.assign(TyVar::Local(local), eval_type_expr(ty).into())?;
-        args.push(local);
     }
 
     let (ret_ty, flow) = form_equations(&mut ctx, &function.body)?;
@@ -331,7 +334,7 @@ fn solve_function(
                 Some(ty) => Ok(ty.clone().try_into().unwrap()),
             })
             .collect::<TypeResult<IVec<LocalId, Type>>>()?,
-        args,
+        args: function.args.clone(),
         body: assign_types(&ctx, &function.body),
     })
 }

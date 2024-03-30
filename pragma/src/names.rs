@@ -60,7 +60,7 @@ fn ast_to_hir_type_expr(
 }
 
 struct Resolver {
-    locals: ISource<hir::LocalId>,
+    locals: IVec<hir::LocalId, Option<hir::TypeExpr>>,
     local_scopes: Vec<HashMap<String, hir::LocalId>>,
     globals: GlobalResolver,
     ids: ISource<hir::ExprId>,
@@ -69,7 +69,7 @@ struct Resolver {
 impl Resolver {
     fn new(globals: GlobalResolver) -> Self {
         Self {
-            locals: ISource::new(),
+            locals: IVec::new(),
             local_scopes: vec![HashMap::new()],
             globals,
             ids: ISource::new(),
@@ -113,8 +113,8 @@ impl Resolver {
         Ok(res)
     }
 
-    fn add_local(&mut self, name: String) -> hir::LocalId {
-        let id = self.locals.next();
+    fn add_local(&mut self, name: String, ty: Option<hir::TypeExpr>) -> hir::LocalId {
+        let id = self.locals.push(ty);
         self.local_scopes
             .last_mut()
             .expect("No local scope")
@@ -153,8 +153,7 @@ pub fn ast_to_hir(intrinsics: Vec<String>, module: ast::Module) -> HirResult<hir
             .into_iter()
             .map(|arg| {
                 let ty = ast_to_hir_type_expr(&mut resolver.globals, arg.0.ty.0)?;
-                resolver.add_local(arg.0.ident.0);
-                Ok(ty)
+                Ok(resolver.add_local(arg.0.ident.0, Some(ty)))
             })
             .collect::<HirResult<_>>()?;
 
@@ -269,9 +268,12 @@ fn ast_to_hir_expression(
                 args: Vec::new(),
             }
         }
-        ast::Expression::Definition { ident, expr } => {
+        ast::Expression::Definition { ident, ty, expr } => {
             let expr = ast_to_hir_expression(resolver, expr.0)?;
-            let id = resolver.add_local(ident.0);
+            let ty = ty
+                .map(|ty| ast_to_hir_type_expr(&mut resolver.globals, ty.0))
+                .transpose()?;
+            let id = resolver.add_local(ident.0, ty);
 
             hir::Expression::Assign {
                 var: id,

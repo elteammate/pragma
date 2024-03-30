@@ -6,6 +6,7 @@ create_index!(pub ConstId);
 create_index!(pub FunctionId);
 create_index!(pub IntrinsicId);
 create_index!(pub ExprId);
+create_index!(pub ParamId);
 
 #[derive(Debug)]
 pub struct Module {
@@ -15,9 +16,9 @@ pub struct Module {
 
 #[derive(Debug)]
 pub struct Function {
-    pub locals: ISource<LocalId>,
+    pub locals: IVec<LocalId, Option<TypeExpr>>,
     pub ident: String,
-    pub args: IVec<LocalId, TypeExpr>,
+    pub args: IVec<ParamId, LocalId>,
     pub body: Expr,
     pub return_ty: TypeExpr,
     pub expr_ids: ISource<ExprId>,
@@ -68,7 +69,7 @@ pub enum Expression {
     Return(Box<Expr>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum TypeExpr {
     Unit,
     Int,

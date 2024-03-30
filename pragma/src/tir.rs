@@ -1,5 +1,4 @@
-use crate::c::ParamId;
-pub use crate::hir::{ConstId, FunctionId, IntrinsicId, LocalId, Const};
+pub use crate::hir::{ConstId, FunctionId, IntrinsicId, LocalId, ParamId, Const};
 use crate::ivec::IVec;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
