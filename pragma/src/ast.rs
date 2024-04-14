@@ -73,6 +73,9 @@ pub enum Expression {
     Ref {
         expr: Box<Ast<Expression>>,
     },
+    Deref {
+        expr: Box<Ast<Expression>>,
+    },
     Unary {
         op: Ast<UnaryOp>,
         expr: Box<Ast<Expression>>,

@@ -1,10 +1,8 @@
-use std::any::Any;
 use crate::c::{CType, Expr, ExternalId, FunctionId, LocalId, ParamId, StructFieldId, StructId, TempId, TypedExternalId, TypedFunctionId, TypedLocalId, TypedParamId};
 use crate::ivec::{IIndex, IVec};
 use crate::tir::Type;
 use crate::{c, ivec, tir};
 use std::collections::HashMap;
-use crate::c::CType::Char;
 
 pub fn transpile_to_c(module: tir::Module) -> c::Module {
     let mut cbuilder = CBuilder::new(&module);
@@ -455,6 +453,17 @@ impl<'m, 'tir> CExpressionBuilder<'m, 'tir> {
                         )));
                         Some(Expr::new_ref(Expr::new_temp(temp)))
                     }
+                }
+            }
+            tir::Expression::Deref(expr) => {
+                let (mut stmts, c_expr) = self.translate_expression(expr);
+                result.append(&mut stmts);
+                let pointee_ty = &expr.ty;
+                if pointee_ty.is_zero_sized() {
+                    None
+                } else {
+                    let c_expr = c_expr.expect("It must contain a value");
+                    Some(Expr::new_deref(c_expr))
                 }
             }
             tir::Expression::Constant(constant) => {

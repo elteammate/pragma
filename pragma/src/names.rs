@@ -265,6 +265,10 @@ fn ast_to_hir_expression(
             let expr = ast_to_hir_expression(resolver, expr.0)?;
             hir::Expression::Ref(Box::new(expr))
         }
+        ast::Expression::Deref { expr } => {
+            let expr = ast_to_hir_expression(resolver, expr.0)?;
+            hir::Expression::Deref(Box::new(expr))
+        }
         ast::Expression::Unary { op, expr } => {
             let op = match op.0 {
                 ast::UnaryOp::Neg => "-1".to_string(),

@@ -287,6 +287,12 @@ create_expressions! {
         x.ty.clone()
     };
     Ref(x: Expr as Box<Expr>)[Precedence::PrefixUnary] : CType::Pointer(Box::new(x.ty.clone()));
+    Deref(x: Expr as Box<Expr>)[Precedence::PrefixUnary] : {
+        match &x.ty {
+            CType::Pointer(pointee) => (**pointee).clone(),
+            _ => panic!("Expected pointer type, got {:?}", &x.ty),
+        }
+    };
     Cast(x: Expr as Box<Expr>, ty: CType)[Precedence::PrefixUnary] : ty.clone();
     // Type is left blank because it's determined by the struct
     StructAccess(x: Expr as Box<Expr>, field: StructFieldId)[Precedence::SuffixUnary] : ;

@@ -56,6 +56,7 @@ pub enum Expression {
     Intrinsic(IntrinsicId),
     Block(Vec<Typed>, Typed),
     Ref(Box<Typed>),
+    Deref(Box<Typed>),
     Method {
         object: Typed,
         name: String,

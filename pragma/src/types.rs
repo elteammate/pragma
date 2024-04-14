@@ -109,6 +109,7 @@ impl TryFrom<UnsolvedType> for Type {
             UnsolvedType::Int => Ok(Type::Int),
             UnsolvedType::String => Ok(Type::String),
             UnsolvedType::Var(_) => Err(()),
+            // TODO: fix recursive pointers issue
             UnsolvedType::Pointer(ty) => Ok(Type::Pointer(Box::new((*ty).try_into().unwrap()))),
             UnsolvedType::Function(id, args, ret) => Ok(Type::Function(
                 id,
@@ -250,6 +251,10 @@ impl<'hir> TyContext<'hir> {
     }
     
     fn assign_impl(&mut self, alpha: TyVar, sigma: UnsolvedType) -> TypeResult<()> {
+        if matches!(sigma, UnsolvedType::Var(beta) if beta == alpha) {
+            return Ok(());
+        }
+        
         if self.occurrence_stack.contains(&alpha) {
             return Err(TypeError::RecursiveType);
         }
@@ -411,6 +416,12 @@ fn form_equations<'hir>(
             flow.reachable = false;
             UnsolvedType::Never
         }
+        hir::Expression::Deref(expr) => {
+            let (ty, expr_flow) = form_equations(ctx, expr)?;
+            flow.merge_with(expr_flow);
+            ctx.assign(ty, UnsolvedType::Pointer(Box::new(UnsolvedType::Var(ty_var))))?;
+            UnsolvedType::Var(ty_var)
+        }
     };
     
     ctx.assign(ty_var, ty)?;
@@ -544,6 +555,10 @@ fn assign_types(ctx: &TyContext, expr: &hir::Expr) -> tir::Typed {
         hir::Expression::Ref(expr) => {
             let expr = assign_types(ctx, expr);
             assign(tir::Expression::Ref(Box::new(expr)))
+        },
+        hir::Expression::Deref(expr) => {
+            let expr = assign_types(ctx, expr);
+            assign(tir::Expression::Deref(Box::new(expr)))
         },
         hir::Expression::Block(exprs, expr) => {
             let mut typed_exprs = vec![];

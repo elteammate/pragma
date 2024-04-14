@@ -381,6 +381,10 @@ fn emit_expression<'c>(
             write!(builder, "&")?;
             emit_expression(builder, names, &x.expr, Precedence::PrefixUnary, true)?;
         }
+        Expression::Deref { x } => {
+            write!(builder, "*")?;
+            emit_expression(builder, names, &x.expr, Precedence::PrefixUnary, true)?;
+        }
         Expression::Call { f, args } => {
             emit_expression(builder, names, &f.expr, Precedence::SuffixUnary, false)?;
             write!(builder, "(")?;
