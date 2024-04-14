@@ -2,4 +2,9 @@ fn main() {
     x := "hello";
     y := &x;
     println(*y);
+    f();
+}
+
+fn f() {
+    f();
 }

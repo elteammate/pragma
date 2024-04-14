@@ -2,7 +2,7 @@ use crate::c::{CType, Expr, ExternalId, FunctionId, LocalId, ParamId, StructFiel
 use crate::ivec::{IIndex, IVec};
 use crate::tir::Type;
 use crate::{c, ivec, tir};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 pub fn transpile_to_c(module: tir::Module) -> c::Module {
     let mut cbuilder = CBuilder::new(&module);
@@ -37,6 +37,7 @@ struct CBuilder<'tir> {
     int_wrap: Option<StructId>,
     string_wrap: Option<StructId>,
     generated_methods: HashMap<(Type, String), TypedFunctionId>,
+    in_generation: HashSet<(Type, String)>,
 }
 
 impl<'tir> CBuilder<'tir> {
@@ -50,6 +51,7 @@ impl<'tir> CBuilder<'tir> {
             int_wrap: None,
             string_wrap: None,
             generated_methods: HashMap::new(),
+            in_generation: HashSet::new(),
         }
     }
 
@@ -110,10 +112,15 @@ impl<'tir> CBuilder<'tir> {
         {
             id.clone()
         } else {
+            if self.in_generation.contains(&(object.clone(), name.to_string())) {
+                todo!("Recursive functions are not yet implemented");
+            }
+            self.in_generation.insert((object.clone(), name.to_string()));
             let method = self.generate_method(object.clone(), name);
             let id = self.function(method);
             self.generated_methods
-                .insert((object, name.to_string()), id.clone());
+                .insert((object.clone(), name.to_string()), id.clone());
+            self.in_generation.remove(&(object, name.to_string()));
             id
         }
     }
