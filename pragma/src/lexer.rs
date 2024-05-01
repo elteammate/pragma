@@ -1,5 +1,5 @@
 use std::iter::Peekable;
-use logos::SpannedIter;
+use logos::{Logos, SpannedIter};
 
 #[derive(logos::Logos, Debug, PartialEq)]
 #[logos(skip r"\s+|//[^\n]*\n")]
@@ -50,3 +50,7 @@ pub enum Token<'s> {
 }
 
 pub type Lex<'s> = Peekable<SpannedIter<'s, Token<'s>>>;
+
+pub fn lex(program: &str) -> Lex {
+    Token::lexer(program).spanned().peekable()
+}

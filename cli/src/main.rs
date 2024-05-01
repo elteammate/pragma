@@ -1,31 +1,13 @@
-mod lexer;
-mod ast;
-mod parser;
-mod hir;
-mod names;
-mod tir;
-mod types;
-mod c;
-mod transpile;
-mod span;
-mod emit;
-mod ivec;
-
-#[macro_use(paste)]
-extern crate paste;
-
-use logos::Logos;
-use ast::ParsingError;
-use lexer::Token;
-use crate::names::ast_to_hir;
-use crate::types::solve_types;
+use pragma::ast::ParsingError;
+use pragma::lexer::lex;
+use pragma::names::ast_to_hir;
+use pragma::{emit, names, parser, transpile};
+use pragma::types::solve_types;
 
 fn main() {
     let program = std::fs::read_to_string("./programs/test.pragma").unwrap();
 
-    let mut lex = Token::lexer(&program)
-        .spanned()
-        .peekable();
+    let mut lex = lex(&program);
 
     let ast = match parser::parse_program(&mut lex) {
         Ok(ast) => ast,

@@ -3,6 +3,13 @@ name = "pragma"
 version = "0.1.0"
 edition = "2021"
 
+[lib]
+name = "pragma"
+
 [dependencies]
 logos = "0.14.0"
 paste = "1.0.14"
+
+[dev-dependencies]
+rstest = "0.19.0"
+tempfile = "3.10.1"

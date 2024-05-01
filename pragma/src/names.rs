@@ -4,6 +4,7 @@ use crate::hir;
 use crate::ivec::{ISource, IVec};
 use std::collections::HashMap;
 
+#[derive(Debug)]
 pub enum HirError {
     UnknownName(String),
     UnknownTypeName(String),
