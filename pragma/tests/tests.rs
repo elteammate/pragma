@@ -124,7 +124,7 @@ fn test_file(#[files("tests/suite/**/*.pragma")] path: PathBuf) {
         panic!("GCC failed: {}", String::from_utf8_lossy(&output.stderr));
     }
 
-    let output = std::process::Command::new(out_path)
+    let output = std::process::Command::new(&out_path)
         .output()
         .expect("Failed to execute program");
 

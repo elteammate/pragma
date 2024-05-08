@@ -5,7 +5,8 @@ use pragma::{emit, names, parser, transpile};
 use pragma::types::solve_types;
 
 fn main() {
-    let program = std::fs::read_to_string("./programs/test.pragma").unwrap();
+    let path = std::env::args().nth(1).unwrap();
+    let program = std::fs::read_to_string(path).unwrap();
 
     let mut lex = lex(&program);
 
